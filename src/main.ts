@@ -14,7 +14,9 @@ import { Hotspots } from "./ui/hotspots";
 import { Hud } from "./ui/hud";
 import { LessonCard } from "./ui/lesson";
 import { Quiz } from "./ui/quiz";
-import { createEnvironment } from "./world/environment";
+import { createBirds } from "./world/birds";
+import { createEnvironment, followSun } from "./world/environment";
+import { updateMaterials } from "./world/materials";
 import { createScatter } from "./world/scatter";
 import { createTerrain } from "./world/terrain";
 
@@ -29,6 +31,9 @@ engine.scene.add(createScatter());
 
 const world = buildPlaces();
 engine.scene.add(world.group);
+
+const birds = createBirds();
+engine.scene.add(birds.group);
 
 // The player starts just outside the middle of the first place, facing in.
 const start = PLACES[0]?.center ?? [0, 0];
@@ -117,17 +122,11 @@ engine.onUpdate((dt, elapsed) => {
   rig.update(dt, input, player.position);
   if (!modalIsOpen()) player.update(dt, input, rig.yaw);
 
-  environment.update(elapsed);
+  updateMaterials(elapsed, player.position);
+  environment.update(elapsed, engine.camera.position);
   animateProps(world.animated, elapsed);
-
-  // Keep the sun's shadow frustum centred on the player.
-  environment.sun.position.set(
-    player.position.x + 60,
-    player.position.y + 80,
-    player.position.z + 40,
-  );
-  environment.sun.target.position.copy(player.position);
-  environment.sun.target.updateMatrixWorld();
+  birds.update(elapsed, player.position);
+  followSun(environment.sun, player.position);
 
   hotspots.update(player.position);
   hud.setPlace(placeAt(player.position.x, player.position.z));
@@ -159,8 +158,19 @@ engine.start();
   },
 };
 
-// The first frame is rendered by now, so the splash can go.
+// The first frame is rendered by now, so the splash can go. The world then
+// fades up out of paper white, matching the reference's intro transition.
 requestAnimationFrame(() => {
   document.querySelector("#loader")?.classList.add("is-hidden");
   window.setTimeout(() => document.querySelector("#loader")?.remove(), 700);
+
+  const start = performance.now();
+  const FADE_MS = 1400;
+  const fade = () => {
+    const t = Math.min((performance.now() - start) / FADE_MS, 1);
+    engine.post.setTransition(t * t * (3 - 2 * t));
+    if (t < 1) requestAnimationFrame(fade);
+  };
+  engine.post.setTransition(0);
+  fade();
 });

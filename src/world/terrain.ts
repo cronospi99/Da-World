@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { clamp, fbm, lerp, smoothstep } from "../core/noise";
 import { PLACES } from "../content/places";
+import { toonMaterial } from "./materials";
 
 export const WORLD_SIZE = 240;
 export const WATER_LEVEL = 0.6;
@@ -68,7 +69,7 @@ export function heightAt(x: number, z: number): number {
   for (const place of PLACES) {
     const plateau = PLATEAUS.get(place.id)!;
     const d = Math.hypot(x - place.center[0], z - place.center[1]);
-    const t = 1 - smoothstep(place.radius * 0.62, place.radius * 1.3, d);
+    const t = 1 - smoothstep(place.radius * 0.85, place.radius * 1.45, d);
     if (t > 0) h = lerp(h, plateau, t);
   }
 
@@ -101,10 +102,12 @@ export function placeFactor(x: number, z: number, placeIndex: number): number {
   return 1 - smoothstep(place.radius * 0.55, place.radius * 1.15, d);
 }
 
-const GRASS = new THREE.Color("#a8b566");
-const GRASS_DARK = new THREE.Color("#7c8c4d");
-const SAND = new THREE.Color("#e2d3a8");
-const ROAD = new THREE.Color("#cbb894");
+// The reference world's own grass palette. These are albedo values — the ramp
+// in materials.ts decides what they look like lit and in shadow.
+const GRASS = new THREE.Color("#8fbe84");
+const GRASS_DARK = new THREE.Color("#4f8a63");
+const SAND = new THREE.Color("#e3d3ac");
+const ROAD = new THREE.Color("#c9b391");
 
 export function createTerrain(): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, SEGMENTS, SEGMENTS);
@@ -125,16 +128,20 @@ export function createTerrain(): THREE.Mesh {
     color.copy(GRASS).lerp(GRASS_DARK, smoothstep(9, 2, y));
 
     // Beaches near the waterline.
-    color.lerp(SAND, smoothstep(WATER_LEVEL + 2.4, WATER_LEVEL - 0.4, y));
+    color.lerp(SAND, smoothstep(WATER_LEVEL + 1.6, WATER_LEVEL - 0.4, y));
 
     // Each place tints its own ground.
     for (let p = 0; p < PLACES.length; p++) {
       const t = placeFactor(x, z, p);
-      if (t > 0) color.lerp(placeColors[p]!, t * 0.75);
+      if (t > 0) color.lerp(placeColors[p]!, t * 0.4);
     }
 
     // Roads on top of everything.
-    color.lerp(ROAD, roadFactor(x, z) * 0.85);
+    color.lerp(ROAD, roadFactor(x, z) * 0.7);
+
+    // Large, slow patches of tone so flattened ground is not a dead colour.
+    const patch = fbm(x * 0.035, z * 0.035, 3, 23);
+    color.offsetHSL(patch * 0.012, patch * 0.05, patch * 0.045);
 
     colors[i * 3] = color.r;
     colors[i * 3 + 1] = color.g;
@@ -144,11 +151,10 @@ export function createTerrain(): THREE.Mesh {
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
 
-  const material = new THREE.MeshStandardMaterial({
+  const material = toonMaterial({
     vertexColors: true,
-    roughness: 0.95,
-    metalness: 0,
     flatShading: true,
+    ramp: "default",
   });
 
   const mesh = new THREE.Mesh(geometry, material);

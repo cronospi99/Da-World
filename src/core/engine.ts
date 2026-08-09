@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { CAMERA_FAR, CAMERA_NEAR } from "../world/environment";
+import { createPost, type Post } from "./post";
 
 export type UpdateFn = (dt: number, elapsed: number) => void;
 
@@ -11,6 +13,7 @@ export class Engine {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly canvas: HTMLCanvasElement;
+  readonly post: Post;
 
   private readonly clock = new THREE.Clock();
   private readonly updates: UpdateFn[] = [];
@@ -24,8 +27,10 @@ export class Engine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Tone mapping is applied by the OutputPass, then graded by the LUT-style
+    // pass in core/post.ts — see there for why the order matters.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.95;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -35,13 +40,17 @@ export class Engine {
 
     this.scene = new THREE.Scene();
 
+    // A short far plane is part of the look: distance dissolves into haze
+    // rather than staying legible all the way to the horizon.
     this.camera = new THREE.PerspectiveCamera(
-      45,
+      42,
       window.innerWidth / window.innerHeight,
-      0.5,
-      600,
+      CAMERA_NEAR,
+      CAMERA_FAR,
     );
     this.camera.position.set(0, 12, 20);
+
+    this.post = createPost(this.renderer, this.scene, this.camera);
 
     window.addEventListener("resize", this.onResize);
   }
@@ -67,7 +76,7 @@ export class Engine {
     const dt = Math.min(this.clock.getDelta(), 1 / 20);
     const elapsed = this.clock.getElapsedTime();
     for (const fn of this.updates) fn(dt, elapsed);
-    this.renderer.render(this.scene, this.camera);
+    this.post.composer.render(dt);
   };
 
   private onResize = (): void => {
@@ -75,7 +84,8 @@ export class Engine {
     const h = window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(w, h);
+    this.post.setSize(w, h);
   };
 }

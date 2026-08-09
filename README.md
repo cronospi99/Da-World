@@ -21,6 +21,43 @@ There are **no binary assets**. The terrain, the props and the character are all
 generated from primitives at load time, so the whole game is the JS bundle.
 Pronunciation uses the browser's built-in speech synthesis.
 
+## How the look works
+
+The art direction is reverse-engineered from the reference bundle rather than
+guessed at. Four things do almost all of the work, and they are worth
+understanding before changing any of them:
+
+**1. Ramp shading, not PBR** (`src/world/materials.ts`). No surface in the game
+is lit physically. Each one looks up a hand-authored gradient with
+`dot(N, L)` remapped to `0..1`, so shadow is a different *hue* — cool violet,
+deep teal for foliage — rather than a darker version of the lit colour. This is
+exactly what the reference does with its `ramps.png` atlas. `MeshToonMaterial`
+already samples a gradient this way, but stock three.js keeps only the red
+channel; a two-line patch to `getGradientIrradiance` gives full RGB ramps and
+lets each material pick its own row. Rows live in `RAMP_STOPS` — edit those and
+the entire world changes mood at once.
+
+**2. The grade** (`src/core/post.ts`). The reference ships a baked 3D LUT and
+applies it fullscreen; that single pass is what turns an ordinary render into a
+warm afternoon. We reproduce the same moves analytically: violet lift in the
+shadows, cream gain in the highlights, a small S-curve, and the same `#FFF9EE`
+overlay wash. **Everything upstream stays honest** — the sky really is blue
+(`#248fd5`), the grass really is green. Do not pre-warm the source colours;
+that is the grade's job, and doing it twice is what turns the ground to mud.
+
+**3. Haze** (`src/world/environment.ts`). A short far plane (190) with fog in
+the horizon colour, plus a bright band sitting exactly on the skyline. Distance
+is meant to dissolve, not stay legible.
+
+**4. Motion everywhere.** Wind sway and drifting cloud shadows are injected into
+every material; grass bends away from you as you walk through it; the camera
+has a slow hand-held drift; birds circle overhead.
+
+A note on exposure: because ramp shading multiplies rather than replaces, total
+light above `1.0` clips toward white and desaturates everything to beige. If
+the world starts looking washed out, the fix is almost always to lower the sun
+intensity or `toneMappingExposure`, not to add more saturation in the grade.
+
 ## Controls
 
 | Action  | Desktop                    | Touch                      |
@@ -87,8 +124,9 @@ free idle animation.
 
 ```
 src/
-  core/        engine (renderer + loop), input, noise/PRNG helpers
-  world/       terrain + roads, sky/water/light, prop builders, scenery scatter
+  core/        engine (renderer + loop), post-processing grade, input, noise
+  world/       ramp materials, terrain + roads, sky/sea/light, props,
+               scenery scatter, birds
   game/        player controller, camera rig, content → scene instantiation
   learn/       progress (localStorage), speech synthesis
   ui/          markers, lesson card, quiz, HUD — plain DOM, no framework

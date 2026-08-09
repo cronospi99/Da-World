@@ -1,18 +1,112 @@
 import * as THREE from "three";
 import { makeRandom } from "../core/noise";
 import { PLACES } from "../content/places";
+import { toonMaterial } from "./materials";
 import { WATER_LEVEL, WORLD_SIZE, heightAt, roadFactor } from "./terrain";
 
 /**
- * Decorative vegetation. Purely instanced so a few thousand tufts of grass
- * cost one draw call each — none of this is interactive.
+ * Scenery: grass patches, background trees and rocks.
+ *
+ * Grass is instanced crossed quads carrying a procedurally drawn blade
+ * texture — the same trick the reference world uses. They sway in the wind,
+ * bend away from the player and fade out with distance so the horizon stays
+ * clean.
  */
 
-const GRASS_COUNT = 4200;
-const TREE_COUNT = 190;
+const GRASS_COUNT = 5200;
+const TREE_COUNT = 210;
 const ROCK_COUNT = 90;
+const GRASS_FADE = 58;
 
-/** World positions that scenery must keep clear of (interactive spots). */
+/** Draws a clump of blades on a transparent canvas. */
+function createBladeTexture(): THREE.Texture {
+  const width = 128;
+  const height = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, width, height);
+
+  const random = makeRandom(7412);
+  for (let i = 0; i < 16; i++) {
+    const baseX = 12 + random() * (width - 24);
+    const bladeHeight = height * (0.45 + random() * 0.5);
+    const lean = (random() - 0.5) * 34;
+    const halfWidth = 2 + random() * 2.4;
+    // Blades are lighter at the tip so the clump reads as rounded.
+    const shade = 0.72 + random() * 0.28;
+    const g = ctx.createLinearGradient(0, height, 0, height - bladeHeight);
+    g.addColorStop(0, `rgba(${Math.round(120 * shade)},${Math.round(150 * shade)},${Math.round(110 * shade)},1)`);
+    g.addColorStop(1, `rgba(${Math.round(225 * shade)},${Math.round(240 * shade)},${Math.round(180 * shade)},1)`);
+    ctx.fillStyle = g;
+
+    ctx.beginPath();
+    ctx.moveTo(baseX - halfWidth, height);
+    ctx.quadraticCurveTo(
+      baseX - halfWidth * 0.5 + lean * 0.4,
+      height - bladeHeight * 0.55,
+      baseX + lean,
+      height - bladeHeight,
+    );
+    ctx.quadraticCurveTo(
+      baseX + halfWidth * 0.5 + lean * 0.4,
+      height - bladeHeight * 0.55,
+      baseX + halfWidth,
+      height,
+    );
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+/** Two quads crossed at 90°, origin at the base. */
+function createGrassGeometry(): THREE.BufferGeometry {
+  const plane = new THREE.PlaneGeometry(0.95, 0.5, 1, 3);
+  plane.translate(0, 0.25, 0);
+
+  const second = plane.clone();
+  second.rotateY(Math.PI / 2);
+
+  const merged = mergeGeometries([plane, second]);
+  plane.dispose();
+  second.dispose();
+  return merged;
+}
+
+/** Minimal position/uv/normal merge — avoids pulling in the addons utility. */
+function mergeGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const result = new THREE.BufferGeometry();
+  const attributes = ["position", "normal", "uv"] as const;
+
+  for (const name of attributes) {
+    const arrays: number[] = [];
+    let itemSize = 3;
+    for (const geometry of geometries) {
+      const attribute = geometry.getAttribute(name) as THREE.BufferAttribute;
+      itemSize = attribute.itemSize;
+      const indexed = geometry.index;
+      if (!indexed) {
+        arrays.push(...Array.from(attribute.array));
+        continue;
+      }
+      for (let i = 0; i < indexed.count; i++) {
+        const vertex = indexed.getX(i);
+        for (let c = 0; c < itemSize; c++) {
+          arrays.push(attribute.array[vertex * itemSize + c]!);
+        }
+      }
+    }
+    result.setAttribute(name, new THREE.Float32BufferAttribute(arrays, itemSize));
+  }
+  return result;
+}
+
 function reservedPoints(): Array<[number, number]> {
   const points: Array<[number, number]> = [];
   for (const place of PLACES) {
@@ -26,7 +120,7 @@ function reservedPoints(): Array<[number, number]> {
 function isBlocked(x: number, z: number, reserved: Array<[number, number]>): boolean {
   if (roadFactor(x, z) > 0.25) return true;
   for (const [rx, rz] of reserved) {
-    if (Math.hypot(x - rx, z - rz) < 4) return true;
+    if (Math.hypot(x - rx, z - rz) < 3.2) return true;
   }
   return false;
 }
@@ -46,21 +140,29 @@ export function createScatter(): THREE.Group {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
 
-  // --- grass tufts -------------------------------------------------------
-  const grassGeometry = new THREE.ConeGeometry(0.24, 0.55, 3);
-  grassGeometry.translate(0, 0.28, 0);
-  // Per-instance colour comes from `setColorAt`; the material must stay white
-  // and must NOT declare `vertexColors` (there is no per-vertex colour here).
+  // --- grass patches -----------------------------------------------------
   const grass = new THREE.InstancedMesh(
-    grassGeometry,
-    new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 1, flatShading: true }),
+    createGrassGeometry(),
+    toonMaterial({
+      ramp: "foliage",
+      map: createBladeTexture(),
+      transparent: true,
+      alphaTest: 0.3,
+      side: THREE.DoubleSide,
+      wind: true,
+      windStrength: 0.13,
+      windHeight: 0.5,
+      reactToPlayer: true,
+      fadeAway: GRASS_FADE,
+    }),
     GRASS_COUNT,
   );
   grass.castShadow = false;
   grass.receiveShadow = true;
+  grass.name = "grass";
 
-  const tuftTop = new THREE.Color("#b9c56f");
-  const tuftBottom = new THREE.Color("#7e9048");
+  const tuftPale = new THREE.Color("#c3d79b");
+  const tuftDeep = new THREE.Color("#7ba171");
 
   let placed = 0;
   for (let attempt = 0; attempt < GRASS_COUNT * 6 && placed < GRASS_COUNT; attempt++) {
@@ -70,13 +172,13 @@ export function createScatter(): THREE.Group {
     if (y < WATER_LEVEL + 1.2) continue;
     if (isBlocked(x, z, reserved)) continue;
 
-    dummy.position.set(x, y, z);
-    dummy.rotation.set(0, random() * Math.PI, (random() - 0.5) * 0.25);
-    const s = 0.8 + random() * 0.9;
-    dummy.scale.set(s, s * (0.7 + random() * 0.7), s);
+    dummy.position.set(x, y - 0.04, z);
+    dummy.rotation.set(0, random() * Math.PI, 0);
+    const s = 0.7 + random() * 0.65;
+    dummy.scale.set(s, s * (0.75 + random() * 0.7), s);
     dummy.updateMatrix();
     grass.setMatrixAt(placed, dummy.matrix);
-    grass.setColorAt(placed, color.copy(tuftBottom).lerp(tuftTop, random()));
+    grass.setColorAt(placed, color.copy(tuftDeep).lerp(tuftPale, random()));
     placed++;
   }
   grass.count = placed;
@@ -92,19 +194,25 @@ export function createScatter(): THREE.Group {
 
   const trunks = new THREE.InstancedMesh(
     trunkGeometry,
-    new THREE.MeshStandardMaterial({ color: "#6b452c", roughness: 1, flatShading: true }),
+    toonMaterial({ color: "#6b452c", flatShading: true }),
     TREE_COUNT,
   );
   const canopies = new THREE.InstancedMesh(
     canopyGeometry,
-    new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 1, flatShading: true }),
+    toonMaterial({
+      ramp: "foliage",
+      flatShading: true,
+      wind: true,
+      windStrength: 0.12,
+      windHeight: 6,
+    }),
     TREE_COUNT,
   );
   trunks.castShadow = canopies.castShadow = true;
   trunks.receiveShadow = canopies.receiveShadow = true;
 
-  const leafA = new THREE.Color("#6f8a46");
-  const leafB = new THREE.Color("#4e6d3a");
+  const leafA = new THREE.Color("#8fb47f");
+  const leafB = new THREE.Color("#5f8a63");
 
   let trees = 0;
   for (let attempt = 0; attempt < TREE_COUNT * 40 && trees < TREE_COUNT; attempt++) {
@@ -136,7 +244,7 @@ export function createScatter(): THREE.Group {
   rockGeometry.translate(0, 0.45, 0);
   const rocks = new THREE.InstancedMesh(
     rockGeometry,
-    new THREE.MeshStandardMaterial({ color: "#96938a", roughness: 1, flatShading: true }),
+    toonMaterial({ color: "#a9a49a", ramp: "stone", flatShading: true }),
     ROCK_COUNT,
   );
   rocks.castShadow = rocks.receiveShadow = true;

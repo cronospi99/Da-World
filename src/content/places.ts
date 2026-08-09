@@ -20,7 +20,7 @@ export const PLACES: Place[] = [
     intro: "You wake up in a warm meadow. Walk around and touch what you see.",
     center: [0, 0],
     radius: 16,
-    palette: { ground: "#c3c273", accent: "#e6dcaa", prop: "#8fa05a" },
+    palette: { ground: "#a8c47a", accent: "#e6dcaa", prop: "#7f9a4e" },
     spots: [
       {
         id: "meadow.sign",
@@ -91,7 +91,7 @@ export const PLACES: Place[] = [
     intro: "Salt in the air, ropes and crates. The sea starts here.",
     center: [-44, -36],
     radius: 22,
-    palette: { ground: "#dcc9a0", accent: "#7fb6c4", prop: "#c46f52" },
+    palette: { ground: "#d5c69d", accent: "#7fb6c4", prop: "#c46f52" },
     spots: [
       {
         id: "harbour.boat",
@@ -192,7 +192,7 @@ export const PLACES: Place[] = [
     intro: "Everyone is talking at once. Perfect place to practise numbers.",
     center: [40, -30],
     radius: 22,
-    palette: { ground: "#cbb98a", accent: "#d98f5a", prop: "#b5543f" },
+    palette: { ground: "#bcbb8c", accent: "#d98f5a", prop: "#b5543f" },
     spots: [
       {
         id: "market.stall",
@@ -308,7 +308,7 @@ export const PLACES: Place[] = [
     intro: "Pine needles under your feet. Speak softly here.",
     center: [-36, 40],
     radius: 22,
-    palette: { ground: "#8fa163", accent: "#5f7a45", prop: "#3f5b34" },
+    palette: { ground: "#7d9a5c", accent: "#5f7a45", prop: "#3f5b34" },
     spots: [
       {
         id: "forest.tent",
@@ -411,7 +411,7 @@ export const PLACES: Place[] = [
     intro: "Trains leave on time. Your English has to keep up.",
     center: [42, 38],
     radius: 22,
-    palette: { ground: "#c0b39a", accent: "#8a7f6e", prop: "#7b4f3a" },
+    palette: { ground: "#aeb094", accent: "#8a7f6e", prop: "#7b4f3a" },
     spots: [
       {
         id: "station.timetable",

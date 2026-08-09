@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
 import { WATER_LEVEL, WORLD_SIZE, heightAt } from "../world/terrain";
+import { toonMaterial } from "../world/materials";
 
 const WALK_SPEED = 9.5;
 const TURN_SPEED = 9;
@@ -19,26 +20,10 @@ export class Player {
   private stride = 0;
 
   constructor(start: THREE.Vector2) {
-    const skin = new THREE.MeshStandardMaterial({
-      color: "#e8b98d",
-      roughness: 0.9,
-      flatShading: true,
-    });
-    const shirt = new THREE.MeshStandardMaterial({
-      color: "#d96f52",
-      roughness: 0.9,
-      flatShading: true,
-    });
-    const trousers = new THREE.MeshStandardMaterial({
-      color: "#4c6a86",
-      roughness: 0.9,
-      flatShading: true,
-    });
-    const hat = new THREE.MeshStandardMaterial({
-      color: "#f3e3bd",
-      roughness: 1,
-      flatShading: true,
-    });
+    const skin = toonMaterial({ color: "#e8b98d", ramp: "skin" });
+    const shirt = toonMaterial({ color: "#d96f52" });
+    const trousers = toonMaterial({ color: "#4c6a86" });
+    const hat = toonMaterial({ color: "#f3e3bd", ramp: "soft" });
 
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.5, 3, 8), shirt);
     torso.position.y = 1.15;

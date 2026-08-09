@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { PlacePalette, PropKind } from "../content/types";
+import { toonMaterial, type RampRow } from "./materials";
 
 /**
  * Parametric low-poly props.
@@ -7,23 +8,40 @@ import type { PlacePalette, PropKind } from "../content/types";
  * Every prop is built from primitives so the game ships with zero binary
  * assets. Each builder returns a Group whose origin sits on the ground and
  * whose contents are already shadow-configured.
+ *
+ * Materials all come from `toonMaterial`, so props shade with the same ramps
+ * as the terrain and the character.
  */
 
-const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+const materialCache = new Map<string, THREE.MeshToonMaterial>();
 
-function mat(color: string, emissive = 0): THREE.MeshStandardMaterial {
-  const key = `${color}|${emissive}`;
+interface MatOptions {
+  ramp?: RampRow;
+  /** Self-lit surfaces: lamp bulbs, fire. */
+  glow?: number;
+  /** Sway in the wind — foliage only. */
+  wind?: boolean;
+  windHeight?: number;
+}
+
+function mat(color: string, options: MatOptions = {}): THREE.MeshToonMaterial {
+  const { ramp = "default", glow = 0, wind = false, windHeight = 6 } = options;
+  const key = `${color}|${ramp}|${glow}|${wind}|${windHeight}`;
   const cached = materialCache.get(key);
   if (cached) return cached;
-  const material = new THREE.MeshStandardMaterial({
+
+  const material = toonMaterial({
     color,
-    roughness: 0.85,
-    metalness: 0,
+    ramp,
     flatShading: true,
-    ...(emissive > 0
-      ? { emissive: new THREE.Color(color), emissiveIntensity: emissive }
-      : {}),
+    wind,
+    windHeight,
+    windStrength: 0.09,
   });
+  if (glow > 0) {
+    material.emissive = new THREE.Color(color);
+    material.emissiveIntensity = glow;
+  }
   materialCache.set(key, material);
   return material;
 }
@@ -53,7 +71,7 @@ const builders: Record<PropKind, Builder> = {
   tree: (p) => {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(0.28, 0.42, 2.6, 6), mat(DARK_WOOD), 0, 1.3));
-    const leaf = mat(p.prop);
+    const leaf = mat(p.prop, { ramp: "foliage", wind: true, windHeight: 7 });
     g.add(mesh(new THREE.ConeGeometry(1.9, 3.0, 7), leaf, 0, 3.6));
     g.add(mesh(new THREE.ConeGeometry(1.5, 2.4, 7), leaf, 0, 5.1));
     g.add(mesh(new THREE.ConeGeometry(1.0, 1.8, 7), leaf, 0, 6.4));
@@ -65,7 +83,7 @@ const builders: Record<PropKind, Builder> = {
     const trunk = mesh(new THREE.CylinderGeometry(0.2, 0.36, 5.4, 6), mat("#9c7448"), 0, 2.7);
     trunk.rotation.z = 0.14;
     g.add(trunk);
-    const leaf = mat(p.prop);
+    const leaf = mat(p.prop, { ramp: "foliage", wind: true, windHeight: 6 });
     for (let i = 0; i < 6; i++) {
       const frond = mesh(new THREE.ConeGeometry(0.55, 3.2, 4), leaf, 0.4, 5.3);
       frond.rotation.z = Math.PI / 2 - 0.35;
@@ -79,11 +97,11 @@ const builders: Record<PropKind, Builder> = {
 
   rock: () => {
     const g = new THREE.Group();
-    const main = mesh(new THREE.IcosahedronGeometry(1.1, 0), mat("#9a978d"), 0, 0.75);
+    const main = mesh(new THREE.IcosahedronGeometry(1.1, 0), mat("#9a978d", { ramp: "stone" }), 0, 0.75);
     main.scale.set(1.3, 0.85, 1.1);
     main.rotation.set(0.4, 0.9, 0.2);
     g.add(main);
-    const small = mesh(new THREE.IcosahedronGeometry(0.5, 0), mat("#8b8880"), 1.1, 0.3, 0.5);
+    const small = mesh(new THREE.IcosahedronGeometry(0.5, 0), mat("#8b8880", { ramp: "stone" }), 1.1, 0.3, 0.5);
     small.rotation.set(0.8, 0.3, 0.5);
     g.add(small);
     return g;
@@ -118,7 +136,7 @@ const builders: Record<PropKind, Builder> = {
     g.add(hull);
     g.add(mesh(new THREE.BoxGeometry(2.0, 0.16, 4.2), mat(WOOD), 0, 1.05));
     g.add(mesh(new THREE.CylinderGeometry(0.09, 0.09, 4.6, 6), mat(DARK_WOOD), 0, 3.3));
-    const sail = mesh(new THREE.ConeGeometry(1.25, 3.4, 3), mat(CANVAS), 0.05, 3.2);
+    const sail = mesh(new THREE.ConeGeometry(1.25, 3.4, 3), mat(CANVAS, { ramp: "soft" }), 0.05, 3.2);
     sail.rotation.y = Math.PI / 6;
     g.add(sail);
     return g;
@@ -128,7 +146,7 @@ const builders: Record<PropKind, Builder> = {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(0.12, 0.18, 4.2, 6), mat("#5c5a55"), 0, 2.1));
     g.add(mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), mat("#4a4844"), 0, 4.35));
-    const bulb = mesh(new THREE.SphereGeometry(0.26, 8, 6), mat("#ffe9a8", 1.6), 0, 4.35);
+    const bulb = mesh(new THREE.SphereGeometry(0.26, 8, 6), mat("#ffe9a8", { glow: 1.6, ramp: "soft" }), 0, 4.35);
     bulb.castShadow = false;
     g.add(bulb);
     return g;
@@ -150,7 +168,7 @@ const builders: Record<PropKind, Builder> = {
   sign: (p) => {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.4, 6), mat(DARK_WOOD), 0, 1.2));
-    const board = mesh(new THREE.BoxGeometry(1.9, 1.1, 0.12), mat(CANVAS), 0, 2.1);
+    const board = mesh(new THREE.BoxGeometry(1.9, 1.1, 0.12), mat(CANVAS, { ramp: "soft" }), 0, 2.1);
     board.rotation.z = 0.06;
     g.add(board);
     g.add(mesh(new THREE.BoxGeometry(2.05, 0.12, 0.16), mat(p.accent), 0, 1.6));
@@ -159,7 +177,7 @@ const builders: Record<PropKind, Builder> = {
 
   tent: (p) => {
     const g = new THREE.Group();
-    const body = mesh(new THREE.CylinderGeometry(1.7, 1.7, 3.2, 3), mat(p.accent), 0, 0.85);
+    const body = mesh(new THREE.CylinderGeometry(1.7, 1.7, 3.2, 3), mat(p.accent, { ramp: "soft" }), 0, 0.85);
     body.rotation.set(Math.PI / 2, 0, Math.PI / 6);
     g.add(body);
     g.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 5), mat(DARK_WOOD), 0, 1.1, 1.7));
@@ -169,7 +187,7 @@ const builders: Record<PropKind, Builder> = {
 
   well: (p) => {
     const g = new THREE.Group();
-    g.add(mesh(new THREE.CylinderGeometry(1.1, 1.15, 1.1, 12), mat("#9a978d"), 0, 0.55));
+    g.add(mesh(new THREE.CylinderGeometry(1.1, 1.15, 1.1, 12), mat("#9a978d", { ramp: "stone" }), 0, 0.55));
     g.add(mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.1, 12), mat("#3f6b7a"), 0, 1.0));
     for (const x of [-0.9, 0.9]) {
       g.add(mesh(new THREE.BoxGeometry(0.16, 2.0, 0.16), mat(DARK_WOOD), x, 2.05));
@@ -190,23 +208,23 @@ const builders: Record<PropKind, Builder> = {
         g.add(mesh(new THREE.BoxGeometry(0.12, 1.4, 0.12), leg, x, 1.8, z));
       }
     }
-    const awning = mesh(new THREE.BoxGeometry(3.4, 0.12, 1.9), mat(p.accent), 0, 2.55);
+    const awning = mesh(new THREE.BoxGeometry(3.4, 0.12, 1.9), mat(p.accent, { ramp: "soft" }), 0, 2.55);
     awning.rotation.x = 0.12;
     g.add(awning);
     for (let i = -1; i <= 1; i++) {
-      g.add(mesh(new THREE.BoxGeometry(0.5, 0.14, 1.92), mat(CANVAS), i * 1.1, 2.57));
+      g.add(mesh(new THREE.BoxGeometry(0.5, 0.14, 1.92), mat(CANVAS, { ramp: "soft" }), i * 1.1, 2.57));
     }
     return g;
   },
 
   house: (p) => {
     const g = new THREE.Group();
-    g.add(mesh(new THREE.BoxGeometry(4.2, 3.0, 3.6), mat(CANVAS), 0, 1.5));
+    g.add(mesh(new THREE.BoxGeometry(4.2, 3.0, 3.6), mat(CANVAS, { ramp: "soft" }), 0, 1.5));
     const roof = mesh(new THREE.ConeGeometry(3.4, 1.8, 4), mat(p.prop), 0, 3.9);
     roof.rotation.y = Math.PI / 4;
     g.add(roof);
     g.add(mesh(new THREE.BoxGeometry(0.9, 1.7, 0.14), mat(DARK_WOOD), 0, 0.85, 1.82));
-    const window = mat("#8fc4d8", 0.25);
+    const window = mat("#8fc4d8", { glow: 0.25, ramp: "soft" });
     g.add(mesh(new THREE.BoxGeometry(0.8, 0.8, 0.12), window, -1.4, 1.9, 1.82));
     g.add(mesh(new THREE.BoxGeometry(0.8, 0.8, 0.12), window, 1.4, 1.9, 1.82));
     return g;
@@ -215,7 +233,7 @@ const builders: Record<PropKind, Builder> = {
   flag: (p) => {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.0, 6), mat("#6b6862"), 0, 2.5));
-    const cloth = mesh(new THREE.PlaneGeometry(1.6, 1.0, 4, 2), mat(p.accent), 0.8, 4.2);
+    const cloth = mesh(new THREE.PlaneGeometry(1.6, 1.0, 4, 2), mat(p.accent, { ramp: "soft", wind: true, windHeight: 1 }), 0.8, 4.2);
     (cloth.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
     cloth.name = "cloth";
     g.add(cloth);
@@ -224,7 +242,7 @@ const builders: Record<PropKind, Builder> = {
 
   campfire: () => {
     const g = new THREE.Group();
-    const stone = mat("#8b8880");
+    const stone = mat("#8b8880", { ramp: "stone" });
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2;
       const s = mesh(new THREE.IcosahedronGeometry(0.3, 0), stone, Math.cos(a) * 1.1, 0.18, Math.sin(a) * 1.1);
@@ -236,7 +254,7 @@ const builders: Record<PropKind, Builder> = {
       log.rotation.set(Math.PI / 2 - 0.5, (i / 4) * Math.PI * 2, 0);
       g.add(log);
     }
-    const flame = mesh(new THREE.ConeGeometry(0.45, 1.2, 5), mat("#ff9a3c", 1.8), 0, 0.9);
+    const flame = mesh(new THREE.ConeGeometry(0.45, 1.2, 5), mat("#ff9a3c", { glow: 1.8, ramp: "soft" }), 0, 0.9);
     flame.castShadow = false;
     flame.name = "flame";
     g.add(flame);
@@ -246,7 +264,7 @@ const builders: Record<PropKind, Builder> = {
   clock: (p) => {
     const g = new THREE.Group();
     g.add(mesh(new THREE.BoxGeometry(0.9, 4.6, 0.9), mat(p.accent), 0, 2.3));
-    const face = mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.25, 14), mat(CANVAS), 0, 5.0);
+    const face = mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.25, 14), mat(CANVAS, { ramp: "soft" }), 0, 5.0);
     face.rotation.x = Math.PI / 2;
     g.add(face);
     const hands = new THREE.Group();
