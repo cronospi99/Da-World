@@ -8,6 +8,8 @@ an example sentence, and a quick quiz once you have seen everything in a place.
 Inspired by the feel of *Summer Afternoon*-style WebGL worlds: warm colours,
 soft low-poly shapes, paper cards that pop up when you interact.
 
+**Live:** https://cronospi99.github.io/Da-World/
+
 ## Running it
 
 ```bash
@@ -57,6 +59,16 @@ A note on exposure: because ramp shading multiplies rather than replaces, total
 light above `1.0` clips toward white and desaturates everything to beige. If
 the world starts looking washed out, the fix is almost always to lower the sun
 intensity or `toneMappingExposure`, not to add more saturation in the grade.
+
+## Deploying
+
+`.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on
+every push to this branch (and to `main`, for when it lands there). Nothing to
+run by hand — pushing is the deploy.
+
+`vite.config.ts` sets `base: "./"`, so built asset paths are relative and work
+from the `/Da-World/` project-pages subpath. If you ever switch to a custom
+domain at the root, that setting can stay as it is.
 
 ## Controls
 
