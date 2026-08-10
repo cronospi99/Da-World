@@ -60,6 +60,33 @@ light above `1.0` clips toward white and desaturates everything to beige. If
 the world starts looking washed out, the fix is almost always to lower the sun
 intensity or `toneMappingExposure`, not to add more saturation in the grade.
 
+## How the movement works
+
+`src/game/physics.ts` is a port of the reference world's `collisionPhysics`,
+using its own constants: `damp 0.92`, `gravity -0.009832`, `directionLerp
+0.075`, `rotVelocityMin/Max 0.0035/0.02`. Only `positionForce` and `jumpForce`
+are scaled (×2.53), because our island is bigger than theirs — everything that
+defines the *feel* is verbatim.
+
+Two things worth knowing before touching it:
+
+**The constants are per frame at 60 Hz, not per second.** The original
+integrates `position += velocity` once a frame with those raw numbers. Instead
+of converting them, `CharacterBody` runs a fixed-timestep accumulator at exactly
+60 Hz. At 60 fps that is the original behaviour unchanged; at 30 or 144 fps it
+is identical *physically*, which a naive `value * dt` port would not be.
+Verified: walking three seconds covers 20.76 / 20.76 / 20.73 units at 30 / 60 /
+144 fps, and the jump peaks at 2.463 units in all three.
+
+**There is no collision mesh.** The reference raycasts a `collider.bin`; we use
+`heightAt(x, z)`, which is analytic, exact and free. Steep ground reduces
+traction rather than blocking movement — a hard block is how characters get
+wedged into hillsides. The shoreline is the only real wall, and it is resolved
+per axis so you slide along the beach instead of stopping dead.
+
+Resulting numbers: top speed ~8.7 units/s, jump 2.46 units high, 0.72 s of
+airtime, with coyote time (0.1 s) and jump buffering (0.15 s).
+
 ## Deploying
 
 `.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on
@@ -72,13 +99,14 @@ domain at the root, that setting can stay as it is.
 
 ## Controls
 
-| Action  | Desktop                    | Touch                      |
-| ------- | -------------------------- | -------------------------- |
-| Move    | `W A S D` / arrow keys     | left half of the screen    |
-| Look    | drag                       | drag on the right half     |
-| Zoom    | scroll wheel               | pinch                      |
-| Learn   | `E` (or click the marker)  | tap the marker             |
-| Close   | `Esc`                      | tap the ✕ or the backdrop  |
+| Action  | Desktop                         | Touch                       |
+| ------- | ------------------------------- | --------------------------- |
+| Move    | `W A S D` / arrow keys          | left half of the screen     |
+| Jump    | `Space`                         | quick tap on the right half |
+| Look    | drag                            | drag on the right half      |
+| Zoom    | scroll wheel                    | pinch                       |
+| Learn   | `E` / `Enter` (or click marker) | tap the marker              |
+| Close   | `Esc`                           | tap the ✕ or the backdrop   |
 
 ## Adding your own places and words
 

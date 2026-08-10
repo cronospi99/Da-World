@@ -45,11 +45,14 @@ export class CameraRig {
       MAX_DISTANCE,
     );
 
-    // Follow a point around the character's chest.
-    this.focus.lerp(
-      this.desired.set(target.x, target.y + 1.35, target.z),
-      Math.min(1, 8 * dt),
-    );
+    // Follow a point around the character's chest. Horizontal tracking is
+    // snappy, vertical is deliberately lazy — a camera that matches a jump
+    // one-for-one makes the jump invisible and the picture queasy.
+    this.desired.set(target.x, target.y + 1.35, target.z);
+    const planar = Math.min(1, 8 * dt);
+    this.focus.x += (this.desired.x - this.focus.x) * planar;
+    this.focus.z += (this.desired.z - this.focus.z) * planar;
+    this.focus.y += (this.desired.y - this.focus.y) * Math.min(1, 2.6 * dt);
 
     // A slow, barely-there drift. It is the difference between a screenshot
     // and something that feels hand-held.

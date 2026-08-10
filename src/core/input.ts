@@ -3,9 +3,10 @@ import * as THREE from "three";
 /**
  * Unified keyboard / mouse / touch input.
  *
- * Desktop: WASD or arrows to walk, drag to orbit, wheel to zoom, E to interact.
- * Touch: left half of the screen is a virtual stick, right half orbits,
- * pinch zooms.
+ * Desktop: WASD or arrows to walk, space to jump, drag to orbit, wheel to
+ * zoom, E (or Enter) to interact.
+ * Touch: left half of the screen is a virtual stick, right half orbits, pinch
+ * zooms, and a quick tap on the right half jumps.
  */
 export class Input {
   /** x = strafe, y = forward. Length is clamped to 1. */
@@ -20,6 +21,8 @@ export class Input {
   }
 
   private readonly keys = new Set<string>();
+  /** Edge-triggered: set on press, cleared by `consumeJump`. */
+  private jumpQueued = false;
   private readonly interactHandlers: Array<() => void> = [];
   private readonly cancelHandlers: Array<() => void> = [];
 
@@ -27,6 +30,10 @@ export class Input {
   private stickOrigin = new THREE.Vector2();
   private lookId: number | null = null;
   private lastLook = new THREE.Vector2();
+  /** Where and when the look pointer went down, to tell a tap from a drag. */
+  private lookStart = new THREE.Vector2();
+  private lookStartTime = 0;
+  private lookIsTouch = false;
   private pinchDistance: number | null = null;
   private readonly activePointers = new Map<number, THREE.Vector2>();
 
@@ -54,10 +61,19 @@ export class Input {
     this.cancelHandlers.push(fn);
   }
 
+  /** True once per press. The character controller buffers it from there. */
+  consumeJump(): boolean {
+    const jump = this.jumpQueued;
+    this.jumpQueued = false;
+    return jump;
+  }
+
   /** Call once per frame, after the camera and player have read the state. */
   endFrame(): void {
     this.look.set(0, 0);
     this.zoom = 0;
+    // An unconsumed jump (modal open, say) must not fire later.
+    this.jumpQueued = false;
   }
 
   update(): void {
@@ -77,7 +93,12 @@ export class Input {
       return;
     }
     if (!this.enabled) return;
-    if (key === "e" || key === " " || key === "enter") {
+    if (key === " ") {
+      event.preventDefault();
+      if (!event.repeat) this.jumpQueued = true;
+      return;
+    }
+    if (key === "e" || key === "enter") {
       event.preventDefault();
       for (const fn of this.interactHandlers) fn();
       return;
@@ -115,6 +136,9 @@ export class Input {
     if (this.lookId === null) {
       this.lookId = event.pointerId;
       this.lastLook.set(event.clientX, event.clientY);
+      this.lookStart.set(event.clientX, event.clientY);
+      this.lookStartTime = performance.now();
+      this.lookIsTouch = isTouch;
     }
   };
 
@@ -154,7 +178,13 @@ export class Input {
       this.stickId = null;
       this.move.set(0, 0);
     }
-    if (event.pointerId === this.lookId) this.lookId = null;
+    if (event.pointerId === this.lookId) {
+      // A quick tap that did not drag is a jump, not a camera move.
+      const held = performance.now() - this.lookStartTime;
+      const moved = this.lookStart.distanceTo(_tap.set(event.clientX, event.clientY));
+      if (this.lookIsTouch && held < 250 && moved < 12) this.jumpQueued = true;
+      this.lookId = null;
+    }
   };
 
   private onWheel = (event: WheelEvent): void => {
@@ -163,6 +193,8 @@ export class Input {
     this.zoom += event.deltaY * 0.01;
   };
 }
+
+const _tap = new THREE.Vector2();
 
 function normalizeKey(key: string): string {
   switch (key) {

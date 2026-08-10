@@ -152,8 +152,7 @@ engine.start();
   goTo(placeId: string) {
     const place = PLACES.find((p) => p.id === placeId);
     if (!place) return `no such place: ${placeId}`;
-    player.position.set(place.center[0], 0, place.center[1]);
-    player.object.position.copy(player.position);
+    player.teleport(place.center[0], place.center[1]);
     return place.name;
   },
 };

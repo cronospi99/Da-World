@@ -95,6 +95,7 @@ export class Hud {
           }),
           el("ul", { class: "info-list" }, [
             el("li", { text: "Move — WASD / arrow keys, or the left half of a touch screen." }),
+            el("li", { text: "Jump — space, or a quick tap on the right half." }),
             el("li", { text: "Look — drag anywhere, or scroll / pinch to zoom." }),
             el("li", { text: "Learn — walk up to a glowing marker and press E (or tap it)." }),
             el("li", { text: "Practise — the ✓ button opens a quick check once you have seen every word in a place." }),
