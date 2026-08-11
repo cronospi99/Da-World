@@ -19,8 +19,9 @@ npm run build    # typecheck + production build into dist/
 npm run preview  # serve the built output
 ```
 
-There are **no binary assets**. The terrain, the props and the character are all
-generated from primitives at load time, so the whole game is the JS bundle.
+The world is generated from primitives at load time — terrain, props, grass and
+sky are all code. The one binary asset is the character model,
+`public/models/character.glb` (CC0, see `public/models/README.md`).
 Pronunciation uses the browser's built-in speech synthesis.
 
 ## How the look works
@@ -60,6 +61,21 @@ light above `1.0` clips toward white and desaturates everything to beige. If
 the world starts looking washed out, the fix is almost always to lower the sun
 intensity or `toneMappingExposure`, not to add more saturation in the grade.
 
+## The character
+
+`src/game/characterModel.ts` loads the rigged GLB, scales it from its own
+bounding box, swaps its PBR materials for our ramp materials so it shades like
+everything else, and drives its clips from the physics state — Idle, Walking,
+Running, Jump and a Wave when it has been standing still for nine seconds. The
+walk/run cycle is time-scaled by actual ground speed so the feet do not skate.
+
+The model is swappable: replace the GLB and adjust `TARGET_HEIGHT`, the `CLIPS`
+name map and `FACING_OFFSET`. That last one matters — if your model was exported
+facing -Z, it will moonwalk until you set it to `Math.PI`.
+
+The primitive stand-in is still in `player.ts` and shows until the GLB resolves,
+so a slow or missing model never costs you the game.
+
 ## How the movement works
 
 `src/game/physics.ts` is a port of the reference world's `collisionPhysics`,
@@ -86,6 +102,18 @@ per axis so you slide along the beach instead of stopping dead.
 
 Resulting numbers: top speed ~8.7 units/s, jump 2.46 units high, 0.72 s of
 airtime, with coyote time (0.1 s) and jump buffering (0.15 s).
+
+### The camera follows you, without bending your path
+
+When you walk, the camera eases around to sit behind your heading; any manual
+drag pauses that for 1.4 s so it never fights you.
+
+The naive version of this circles forever: hold `D`, you move right, the camera
+rotates behind you, "right" now points somewhere else, and you spiral. So
+`Player.directionFor` computes the world heading **once, when the input
+changes**, and holds it. The camera can then swing freely while your path stays
+straight. Measured: holding `D` rotates the camera 69° while the heading drifts
+0.6°.
 
 ## Deploying
 

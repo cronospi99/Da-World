@@ -6,6 +6,7 @@ import { Input } from "./core/input";
 import { PLACES } from "./content/places";
 import type { Place } from "./content/types";
 import { CameraRig } from "./game/cameraRig";
+import { CharacterModel } from "./game/characterModel";
 import { Player } from "./game/player";
 import { animateProps, buildPlaces, placeAt } from "./game/placesBuilder";
 import { Progress } from "./learn/progress";
@@ -119,8 +120,8 @@ input.onCancel(() => {
 // --- loop -------------------------------------------------------------------
 engine.onUpdate((dt, elapsed) => {
   input.update();
-  rig.update(dt, input, player.position);
-  if (!modalIsOpen()) player.update(dt, input, rig.yaw);
+  rig.update(dt, input, player.position, player.body.facing, input.isMoving);
+  if (!modalIsOpen()) player.update(dt, input, rig.yaw, rig.isManual);
 
   updateMaterials(elapsed, player.position);
   environment.update(elapsed, engine.camera.position);
@@ -142,6 +143,14 @@ engine.onUpdate((dt, elapsed) => {
 });
 
 engine.start();
+
+// The rigged model arrives after the first frame; until then the primitive
+// stand-in is on screen, so a slow or missing GLB never blocks play.
+CharacterModel.load()
+  .then((model) => player.attachModel(model))
+  .catch((error) => {
+    console.warn("Character model failed to load, keeping the stand-in.", error);
+  });
 
 // Handy while authoring content: inspect and teleport from the console.
 (window as unknown as Record<string, unknown>).__world = {

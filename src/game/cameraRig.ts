@@ -15,6 +15,11 @@ const START_PITCH = 0.3;
 const SHAKE = new THREE.Vector3(0.08, 0.08, 0.02);
 const SHAKE_SPEED = 0.2;
 
+/** After a manual drag, the camera stops chasing for this long. */
+const MANUAL_HOLD = 1.4;
+/** How hard the camera swings back behind the player, per second. */
+const FOLLOW_RATE = 1.9;
+
 /** Smoothed third-person orbit camera that never dips under the ground. */
 export class CameraRig {
   /**
@@ -27,10 +32,22 @@ export class CameraRig {
   private readonly focus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private elapsed = 0;
+  private manualHold = 0;
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
-  update(dt: number, input: Input, target: THREE.Vector3): void {
+  /** True while the player is steering the camera themselves. */
+  get isManual(): boolean {
+    return this.manualHold > 0;
+  }
+
+  update(
+    dt: number,
+    input: Input,
+    target: THREE.Vector3,
+    playerFacing: number,
+    playerMoving: boolean,
+  ): void {
     this.elapsed += dt;
 
     this.yaw -= input.look.x * 0.005;
@@ -44,6 +61,16 @@ export class CameraRig {
       MIN_DISTANCE,
       MAX_DISTANCE,
     );
+
+    // Any manual look pauses the auto-follow, so dragging is never fought.
+    if (input.look.x !== 0 || input.look.y !== 0) this.manualHold = MANUAL_HOLD;
+    else this.manualHold = Math.max(0, this.manualHold - dt);
+
+    // Otherwise the camera eases around to sit behind the direction of travel.
+    // The rig is behind the player when yaw == facing + PI.
+    if (playerMoving && this.manualHold === 0) {
+      this.yaw = angleLerp(this.yaw, playerFacing + Math.PI, Math.min(1, FOLLOW_RATE * dt));
+    }
 
     // Follow a point around the character's chest. Horizontal tracking is
     // snappy, vertical is deliberately lazy — a camera that matches a jump
@@ -75,4 +102,10 @@ export class CameraRig {
     this.camera.position.set(x, Math.max(y, floor), z);
     this.camera.lookAt(this.focus);
   }
+}
+
+function angleLerp(current: number, target: number, t: number): number {
+  let delta = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return current + delta * t;
 }

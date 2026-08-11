@@ -1,13 +1,17 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
 import { toonMaterial } from "../world/materials";
+import { CharacterModel } from "./characterModel";
 import { CharacterBody, type MotionState } from "./physics";
 
 /**
- * The traveller: a low-poly body driven by `CharacterBody`.
+ * The traveller.
  *
- * All movement lives in physics.ts. This file only builds the meshes and poses
- * them, with the reference's four states — idle, run, air and bored.
+ * All movement lives in physics.ts. This file owns the visuals: a rigged GLB
+ * when it has loaded, and a primitive stand-in before that (and if the model
+ * ever fails to load, so a broken asset never costs you the game).
+ *
+ * It also owns one movement subtlety — see `directionFor` at the bottom.
  */
 
 /** Seconds standing still before the idle fidget plays. */
@@ -24,6 +28,7 @@ export class Player {
   private readonly head: THREE.Mesh;
   private readonly hat = new THREE.Group();
 
+  private model: CharacterModel | null = null;
   private stride = 0;
   private idleTime = 0;
   private boredTime = -1;
@@ -31,6 +36,15 @@ export class Player {
   private runBlend = 0;
   private airBlend = 0;
   private squash = 0;
+
+  /**
+   * The world-space heading the current input maps to. Frozen while the input
+   * itself does not change, so the camera can swing around behind the player
+   * without bending their path — see `directionFor`.
+   */
+  private readonly heldDirection = new THREE.Vector2();
+  private readonly lastInput = new THREE.Vector2();
+  private hasHeldDirection = false;
 
   constructor(start: THREE.Vector2) {
     this.body = new CharacterBody(start);
@@ -92,26 +106,92 @@ export class Player {
     this.object.position.copy(this.body.position);
   }
 
-  update(dt: number, input: Input, cameraYaw: number): void {
-    // Desired direction in world space, relative to where the camera looks.
-    // The rig sits at focus + (sin(yaw), cos(yaw)) * distance, so "forward"
-    // for the player is (-sin, -cos) and "right" is (cos, -sin).
-    const direction = new THREE.Vector2();
-    if (input.isMoving) {
-      const sin = Math.sin(cameraYaw);
-      const cos = Math.cos(cameraYaw);
-      direction.set(
-        input.move.x * cos - input.move.y * sin,
-        -input.move.x * sin - input.move.y * cos,
-      );
-    }
+  update(dt: number, input: Input, cameraYaw: number, cameraIsManual: boolean): void {
+    const direction = this.directionFor(input, cameraYaw, cameraIsManual);
 
     this.body.update(dt, direction, input.consumeJump());
+    if (this.model && this.body.justJumped) this.model.onJump();
 
     this.object.position.copy(this.body.position);
     this.object.rotation.y = this.body.facing;
 
-    this.animate(dt);
+    if (this.model) {
+      this.model.update(dt, this.body.state, this.body.speed);
+      this.animateFallbackOnly(dt);
+    } else {
+      this.animate(dt);
+    }
+  }
+
+  /**
+   * Maps the input to a world-space heading.
+   *
+   * The obvious version — recompute from the camera yaw every frame — breaks
+   * as soon as the camera follows the player: holding "right" moves you right,
+   * the camera rotates to sit behind you, "right" now points somewhere else,
+   * and you walk in a circle. So the heading is computed once when the input
+   * changes and then held, which lets the camera swing around freely while
+   * your path stays straight.
+   */
+  private directionFor(
+    input: Input,
+    cameraYaw: number,
+    cameraIsManual: boolean,
+  ): THREE.Vector2 {
+    if (!input.isMoving) {
+      this.hasHeldDirection = false;
+      this.lastInput.set(0, 0);
+      return this.heldDirection.set(0, 0);
+    }
+
+    // Recompute when the stick/keys actually change, or while the player is
+    // steering the camera by hand (then they expect the aim to follow it).
+    const changed = input.move.distanceTo(this.lastInput) > 0.12;
+    if (!this.hasHeldDirection || changed || cameraIsManual) {
+      // The rig sits at focus + (sin(yaw), cos(yaw)) * distance, so "forward"
+      // for the player is (-sin, -cos) and "right" is (cos, -sin).
+      const sin = Math.sin(cameraYaw);
+      const cos = Math.cos(cameraYaw);
+      this.heldDirection.set(
+        input.move.x * cos - input.move.y * sin,
+        -input.move.x * sin - input.move.y * cos,
+      );
+      this.lastInput.copy(input.move);
+      this.hasHeldDirection = true;
+    }
+    return this.heldDirection;
+  }
+
+  /** With the GLB driving the pose, only the hat/squash extras still apply. */
+  private animateFallbackOnly(dt: number): void {
+    if (this.body.justLanded) this.squash = Math.min(1, this.body.airTime * 1.6 + 0.35);
+    if (this.body.justJumped) this.squash = -0.5;
+    this.squash = THREE.MathUtils.damp(this.squash, 0, 9, dt);
+
+    if (this.body.state === "idle") {
+      this.idleTime += dt;
+      if (this.boredTime < 0 && this.idleTime > BORED_AFTER) {
+        this.boredTime = 0;
+        this.model?.onBored();
+      }
+    } else {
+      this.idleTime = 0;
+      this.boredTime = -1;
+    }
+    if (this.boredTime >= 0) {
+      this.boredTime += dt;
+      if (this.boredTime > BORED_LENGTH) {
+        this.boredTime = -1;
+        this.idleTime = 0;
+      }
+    }
+  }
+
+  /** Swap the primitive stand-in for the rigged model. */
+  attachModel(model: CharacterModel): void {
+    this.model = model;
+    this.rig.visible = false;
+    this.object.add(model.object);
   }
 
   private animate(dt: number): void {
