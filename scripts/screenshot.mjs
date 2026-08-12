@@ -35,7 +35,8 @@ await page.waitForFunction(() => !document.querySelector("#loader"), null, { tim
 await page.waitForTimeout(2500);
 // The menu is the first thing anybody sees, so it is the first shot.
 await page.screenshot({ path: `${OUT}/00-menu.png` });
-await page.locator(".menu-start").click();
+// The main menu leads with Play; the mode list behind it has its own Start.
+await page.locator(".menu-start").first().click();
 await page.waitForTimeout(1200);
 await page.screenshot({ path: `${OUT}/01-start.png` });
 

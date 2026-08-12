@@ -5,10 +5,11 @@ import { Engine } from "./core/engine";
 import { Input } from "./core/input";
 import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
-import { City } from "./city/city";
+import { City, TREE_SPOTS } from "./city/city";
 import { BODY_RADIUS } from "./city/ground";
 import { DayNight } from "./city/daynight";
 import { streetAt, visitsAt } from "./city/discovery";
+import { isSidewalk } from "./city/layout";
 import { KIT_REQUESTS } from "./city/kit";
 import { loadKits } from "./city/kits";
 import { Npcs } from "./city/npcs";
@@ -31,6 +32,8 @@ import {
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
+import { loadAppearance, saveAppearance, type Appearance } from "./game/appearance";
+import { CharacterPanel } from "./ui/character";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
 import { TeacherPanel } from "./ui/teacher";
@@ -123,7 +126,11 @@ async function boot(): Promise<void> {
   const classmates = new Classmates();
   engine.scene.add(classmates.group);
 
-  const player = new Player(START);
+  // Who you are, from the last time you chose. The customiser can change it
+  // while the game is running, so this is only the starting point.
+  const appearance: Appearance = loadAppearance();
+
+  const player = new Player(START, appearance);
   player.body.facing = START_FACING;
   // The crowd is solid: you stop against the person you are walking up to
   // rather than standing inside them while they talk to you.
@@ -150,6 +157,10 @@ async function boot(): Promise<void> {
     // on the board for the student who arrived late.
     onRoom: () => {
       lobby.open();
+      syncInput();
+    },
+    onCharacter: () => {
+      character.toggle(true);
       syncInput();
     },
   });
@@ -228,7 +239,12 @@ async function boot(): Promise<void> {
 
   /** The world only listens while nothing is covering it. */
   const busy = (): boolean =>
-    dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen || lobby.isOpen;
+    dialog.open ||
+    hud.isBlocking ||
+    menu.isOpen ||
+    teacher.isOpen ||
+    lobby.isOpen ||
+    character.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -539,6 +555,10 @@ async function boot(): Promise<void> {
       }
       startMode(chosen);
     },
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
+    },
     onQuality: (name) => {
       engine.setQuality(name);
       environment.setShadowQuality(QUALITY[name].shadowMap, QUALITY[name].shadowRadius);
@@ -546,6 +566,16 @@ async function boot(): Promise<void> {
       rememberQuality(name);
     },
     onTeacher: () => teacher.toggle(true),
+  });
+
+  const character = new CharacterPanel(ui, appearance, {
+    // Live: the character in the city changes as the swatches are tapped, which
+    // is the whole reason the panel is worth having over a list of names.
+    onChange: (chosen) => {
+      player.setAppearance(chosen);
+      saveAppearance(chosen);
+    },
+    onClose: () => syncInput(),
   });
 
   const teacher = new TeacherPanel(ui, state, {
@@ -623,6 +653,16 @@ async function boot(): Promise<void> {
       return npc.name;
     },
     setHour: (hour: number) => dayNight.setHours(hour),
+    /**
+     * How many trees ended up on a pavement, which must be none.
+     *
+     * The kerbside planting was taken out because a trunk every few paces made
+     * walking down a three-tile pavement a slalom. This is the invariant that
+     * says so out loud, so the next change to the planting rules cannot quietly
+     * put them back.
+     */
+    treesOnPavement: (): number =>
+      TREE_SPOTS.filter((t) => isSidewalk(Math.floor(t.x), Math.floor(t.z))).length,
     stats: () => ({ ...engine.renderer.info.render }),
   };
 

@@ -21,6 +21,8 @@ interface HudOptions {
   onPause: (paused: boolean) => void;
   /** Reopen the class panel — the code, the QR and who is in. */
   onRoom: () => void;
+  /** Open the character customiser from inside the game. */
+  onCharacter: () => void;
 }
 
 export class CityHud {
@@ -327,6 +329,19 @@ export class CityHud {
     });
     reset.addEventListener("click", () => this.options.onReset());
 
+    // The customiser lives on the main menu, which is gone once you are
+    // walking — and "can I be the robot instead?" is a question that arrives
+    // about ninety seconds into a lesson, not before it.
+    const character = el("button", {
+      class: "pill-button ghost",
+      type: "button",
+      text: "🧍 Your character",
+    });
+    character.addEventListener("click", () => {
+      this.toggleInfo(false);
+      this.options.onCharacter();
+    });
+
     const info = el("div", { class: "overlay info-overlay", "aria-hidden": "true" }, [
       el("div", { class: "overlay-scrim" }),
       el("div", { class: "card info-card" }, [
@@ -340,7 +355,7 @@ export class CityHud {
           }),
           el("ul", { class: "info-list" }, [
             el("li", { text: "Move — WASD / arrow keys, or the left half of a touch screen." }),
-            el("li", { text: "Sprint — hold Shift." }),
+            el("li", { text: "Sprint — hold Shift. A walk is a walk; Shift is for a hurry." }),
             el("li", { text: "Jump — space, or a quick tap on the right half." }),
             el("li", {
               text: "Look — click once to take the mouse, then move it. Esc gives it back.",
@@ -353,7 +368,7 @@ export class CityHud {
             class: "info-note",
             text: "Stay on the pavement and cross at the crossings — that is the whole point of the directions people give you. A wrong answer costs nothing: the option locks and you try again. Cars stop at red lights and the sun really does go down. Pronunciation uses your device voice; your progress is saved in this browser.",
           }),
-          el("div", { class: "lesson-actions" }, [reset]),
+          el("div", { class: "lesson-actions" }, [character, reset]),
         ]),
         closeButton(() => this.toggleInfo(false), "Close"),
       ]),

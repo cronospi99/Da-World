@@ -26,14 +26,52 @@ import { groundHeight, nearestWalkable, resolveMove } from "../city/ground";
  * still purely simulation and knows nothing about tiles or buildings.
  */
 
-/** Our world units per reference world unit. */
-const SCALE = 2.53;
+/** The simulation's fixed step. The reference runs at 60 Hz. */
+const TICK = 1 / 60;
+
+/** Velocity retained each tick. Reference value, unscaled. */
+const DAMP = 0.92;
+
+/**
+ * How fast a walk is, in world units per second.
+ *
+ * This is the number to change, and it is the one that was wrong. The
+ * reference's acceleration, scaled up for a world 2.5x its size, gave a top
+ * speed of nearly nine units a second — and since a person is 1.2 units tall,
+ * that is a pedestrian covering seven times their own height every second.
+ * Down a pavement one tile wide, past shopfronts you are meant to be *reading*,
+ * it was a sprint you could not switch off: you overshot the citizen you were
+ * walking towards, and the city went past too fast to be a city.
+ *
+ * Two and a half is a walk you can steer between a lamp post and a kerb, and it
+ * still crosses a block in a few seconds. Anybody in a hurry has Shift.
+ */
+export const WALK_SPEED = 2.5;
+
+/**
+ * How much harder the character pushes while sprinting.
+ *
+ * It raises the acceleration rather than the damping, so the top speed rises
+ * with it and you still stop on a sixpence when you let go — which is what
+ * keeps a run down a pavement from turning into an ice rink.
+ */
+export const SPRINT_BOOST = 2.0;
+
+/**
+ * Acceleration per tick that settles at `WALK_SPEED`.
+ *
+ * With `v += f` then `v *= damp` every tick, the speed converges on
+ * `f * damp / (1 - damp)` units per tick; the 60 turns that into units per
+ * second. Deriving it means the speed above is the thing you edit, and the
+ * damping stays free to be tuned for feel without silently changing it.
+ */
+const forceFor = (speed: number): number => (speed / 60) * ((1 - DAMP) / DAMP);
 
 export const PHYSICS = {
-  /** Horizontal acceleration per tick. Reference: 0.005. */
-  positionForce: 0.005 * SCALE,
+  /** Horizontal acceleration per tick, from the walking speed above. */
+  positionForce: forceFor(WALK_SPEED),
   /** Velocity retained each tick. Reference value, unscaled. */
-  damp: 0.92,
+  damp: DAMP,
   /** Downward acceleration per tick. Reference value, unscaled. */
   gravity: -0.009832,
   /**
@@ -44,16 +82,27 @@ export const PHYSICS = {
    * city look like a toy.
    */
   jumpForce: 0.155,
-  /** How fast the character turns towards its heading, per tick. */
-  directionLerp: 0.075,
+  /**
+   * How fast the character turns towards its heading, per tick.
+   *
+   * Raised with the slower walk. Turning was tuned for a character crossing the
+   * street in a second, where a lazy turn reads as weight; at walking pace the
+   * same number reads as a shopping trolley, and stepping around a lamp post
+   * became a three-point turn.
+   */
+  directionLerp: 0.14,
   /** Below this speed the character does not bother turning. */
-  rotVelocityMin: 0.0035,
-  /** At this speed it turns at full rate. */
-  rotVelocityMax: 0.02,
+  rotVelocityMin: 0.002,
+  /**
+   * At this speed it turns at full rate.
+   *
+   * A fraction of the walk, so easing the stick over still turns you properly:
+   * scaled off the top speed rather than left at an absolute, this keeps
+   * working if the walk is retuned again.
+   */
+  rotVelocityMax: (WALK_SPEED * 0.45) / 60,
 } as const;
 
-/** The simulation's fixed step. The reference runs at 60 Hz. */
-const TICK = 1 / 60;
 /** Never simulate more than this much time in one frame (spiral-of-death guard). */
 const MAX_CATCHUP = 0.25;
 

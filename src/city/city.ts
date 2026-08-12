@@ -59,6 +59,7 @@ import {
   Y_BANDS,
   hRowSet,
   isRoad,
+  isSidewalk,
   vColSet,
   type Zone,
 } from './layout';
@@ -979,6 +980,10 @@ function treeSpots(): TreeSpot[] {
       }
       if (p.kind === 'riverside' && z > p.y + 2.2 && z < p.y + 6) continue;
       if (p.kind === 'sports' && x > p.x + 1.6 && x < p.x + p.w - 1.6 && z > p.y + 1.2) continue;
+      // A park's outer tiles are the pavement that runs past its railings, and
+      // a tree planted there is in the walking lane exactly as a street tree
+      // was. Plant it a row in.
+      if (isSidewalk(Math.floor(x), Math.floor(z))) continue;
       spots.push({ x, z, s: 0.9 + rand() * 0.6, kind: Math.floor(rand() * 3) });
     }
   }
@@ -987,6 +992,7 @@ function treeSpots(): TreeSpot[] {
     const x = rand() * GW;
     const z = rand() * GH;
     if (isRoad(Math.floor(x), Math.floor(z))) continue;
+    if (isSidewalk(Math.floor(x), Math.floor(z))) continue;
     if (inPark(x, z)) continue;
     if (blocked(x, z)) continue;
     spots.push({ x, z, s: 0.75 + rand() * 0.65, kind: Math.floor(rand() * 3) });
@@ -1008,25 +1014,21 @@ function treeSpots(): TreeSpot[] {
     spots.push({ x, z, s: 0.9 + rand() * 0.8, kind: Math.floor(rand() * 3) });
   }
 
-  // Street trees along the kerbs.
-  for (const r of HROADS) {
-    for (let x = 1.5; x < GW; x += 3.6) {
-      if (vColSet.has(Math.floor(x))) continue;
-      for (const z of [kerbLine(r.rows, -1), kerbLine(r.rows, 1)]) {
-        if (z < 0 || z > GH || blocked(x, z)) continue;
-        spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 0 });
-      }
-    }
-  }
-  for (const r of VROADS) {
-    for (let z = 1.5; z < GH; z += 3.6) {
-      if (hRowSet.has(Math.floor(z))) continue;
-      for (const x of [kerbLine(r.cols, -1), kerbLine(r.cols, 1)]) {
-        if (x < 0 || x > GW || blocked(x, z)) continue;
-        spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 2 });
-      }
-    }
-  }
+  // Nothing is planted on a pavement.
+  //
+  // There used to be a street tree every three and a half tiles along both
+  // kerbs of every street, and they looked wonderful and ruined the walking.
+  // A pavement here is three tiles wide, a person is half a tile across, and a
+  // trunk you have to steer around every few paces turns a walk down Main
+  // Street into a slalom — worse on a phone, where the stick is a thumb and the
+  // correction you meant to make is never quite the one you made.
+  //
+  // The street keeps its furniture: lamp posts, benches, bins and bollards are
+  // placed against the kerb by `buildStreetProps`, in a line, out of the way of
+  // the middle of the pavement, which is what a real street does with them and
+  // what leaves a lane to walk in. The greenery moved to where you have room to
+  // wander around it — the parks, the gardens behind the blocks, and the
+  // woodland belt beyond the city limits.
   return spots;
 }
 

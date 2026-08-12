@@ -1017,6 +1017,149 @@ canvas.webgl {
   color: #bdb4a3;
 }
 
+/* --- the main menu's own screens -------------------------------------------
+   One panel, four screens: home, modes, missions, graphics. Only one is in the
+   document flow at a time, so the panel is always the height of what it holds.
+   --------------------------------------------------------------------------- */
+
+.menu-view.is-hidden {
+  display: none;
+}
+
+.menu-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.menu-tile {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  align-items: center;
+  gap: 2px 14px;
+  padding: 14px 16px;
+  border: 2px solid #e5d9c0;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+  text-align: left;
+  color: var(--ink);
+  transition: transform 0.16s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.menu-tile:hover {
+  transform: translate(-1px, -1px);
+  border-color: var(--accent);
+  background-color: #fffaee;
+}
+
+.tile-icon {
+  grid-row: 1 / span 2;
+  font-size: 27px;
+  line-height: 1;
+}
+
+.tile-label {
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.tile-blurb {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+
+/* --- the character customiser ---------------------------------------------- */
+
+.avatar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 16px;
+}
+
+.avatar {
+  flex: 0 0 150px;
+  align-self: flex-start;
+  padding: 10px;
+  border: 2px solid #e5d9c0;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+}
+
+.avatar svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.avatar-choices {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.body-card {
+  padding: 12px 14px;
+  border: 2px solid #e5d9c0;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+  text-align: left;
+  color: var(--ink);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.body-card.is-chosen {
+  border-color: var(--accent);
+  background-color: #fff3e2;
+}
+
+.body-icon {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.body-name {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.body-blurb {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #e5d9c0;
+  transition: transform 0.14s ease, box-shadow 0.2s ease;
+}
+
+.swatch:hover {
+  transform: scale(1.08);
+}
+
+.swatch.is-chosen {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
 /* --- mode cards ------------------------------------------------------------ */
 
 .mode-grid {

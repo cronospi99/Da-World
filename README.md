@@ -85,7 +85,7 @@ cannot tell them apart.
 | | |
 | --- | --- |
 | Move | `W A S D` / arrow keys, or the left half of a touch screen |
-| Sprint | `Shift` |
+| Sprint | `Shift` — a walk is 2.5 units a second, a run is 5 |
 | Jump | `Space`, or a quick tap on the right half |
 | Look | Click once to take the mouse, then move it. `Esc` gives it back |
 | Zoom | Scroll, or pinch |
@@ -95,8 +95,30 @@ cannot tell them apart.
 
 On a phone the controls are drawn on the screen: a stick that appears under
 your left thumb wherever you put it, a 💬 button that lights up when somebody
-is in range, and a jump button. Aiming is a drag anywhere else. Held upright,
-the HUD stacks and the cards become sheets you can reach.
+is in range, and a jump button. Aiming is a drag anywhere else, at twice the
+mouse's radians per pixel — a thumb has about a fifth of a screen to travel
+before it runs out of hand, and at the mouse rate looking behind you took four
+swipes. Held upright, the HUD stacks and the cards become sheets you can reach.
+
+Walking is a **walk**. It used to top out near nine units a second, which for a
+character 1.2 units tall is seven times their own height every second: you
+overshot the citizen you were walking towards and the shopfronts you are meant
+to be reading went past in a blur. Shift is there for anybody in a hurry.
+
+## Your character
+
+Menu → **Your character**, before you start or at any time after. Two bodies:
+
+- **A person**, built from the same rig as every citizen — shirt, trousers,
+  skin, hair and one thing to carry, from a small palette that reads at camera
+  distance. In a class of twelve this is how you tell who is who on the
+  pavement.
+- **A robot** — a rigged GLB with a real skeleton, its own walk, run, jump and
+  a wave when you stand still. It is scaled to the same height as everybody
+  else and shaded with the city's own materials, and it is only downloaded if
+  you pick it; the person stands in until it lands.
+
+The choice is remembered in the browser, so a student picks once.
 
 You may only walk on the pavements, the crossings and the parks. That is a
 language rule before it is a road-safety one: if you could cut diagonally across

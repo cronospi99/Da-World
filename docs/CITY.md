@@ -92,6 +92,16 @@ paint and the grid would put a shop on the wrong street in a direction the game
 had just given. The roads kit is used for what stands beside the road instead:
 lamps, signs, cones and barriers.
 
+**Nothing is planted on a pavement.** There used to be a street tree every three
+and a half tiles along both kerbs, and they looked wonderful and ruined the
+walking: a pavement is three tiles wide, a person is half a tile across, and a
+trunk every few paces turns a walk down Main Street into a slalom — worse on a
+phone, where the stick is a thumb. The street keeps its furniture, which stands
+in a line against the kerb where a real street puts it and leaves a lane to
+walk in; the greenery lives where there is room to wander around it. The
+invariant is checked at runtime by `__world.treesOnPavement()`, which must be
+zero.
+
 The painted signage is also the *only* signage. There are no name plates
 floating over the buildings: a plate written for a camera looking down at the
 rooftops is the size of a bus from the pavement, and it covers the shopfront it

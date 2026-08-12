@@ -104,9 +104,8 @@ const fail = (message) => {
 /* --- the teacher, hosting from their own browser -------------------------- */
 
 const host = await tab(`${BASE}${query}`);
-// Class is the third mode card; picking it and pressing Play opens the panel.
-await host.locator(".mode-card").nth(2).click();
-await host.locator(".menu-start").click();
+// "Play together" on the main menu is Class mode's own door: it opens the panel.
+await host.locator('.menu-tile:has-text("Play together")').click();
 await host.locator(".lobby-choices .pill-button").first().click();
 
 await host.waitForFunction(

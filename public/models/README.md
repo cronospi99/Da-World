@@ -6,20 +6,28 @@ file. They are all **CC0 1.0** (public domain) and each folder keeps the
 `LICENSE.txt` it shipped with. [`docs/CITY.md`](../../docs/CITY.md) is the full
 story of how they are loaded, merged and recoloured.
 
-## There is no character model
+## The people, and the one exception
 
-The people are not models. Every person in Da World — the player and all
-thirty-two citizens — is built in code by `src/city/character.ts`: rounded
-boxes for the body, a canvas-drawn face, one accessory from a small wardrobe,
-and a walk cycle that hinges the hips and shoulders.
+The people are not models. Every person in Da World — all thirty-two citizens,
+and the player when they choose to be one — is built in code by
+`src/city/character.ts`: rounded boxes for the body, a canvas-drawn face, one
+accessory from a small wardrobe, and a walk cycle that hinges the hips and
+shoulders. It costs no download, has no loading state and no failure mode, and
+it puts the player in the same city as the citizens instead of visiting it.
 
-This used to be a rigged GLB (Quaternius' *RobotExpressive*, via the three.js
-examples) for the player only, which meant the one character you looked at
-every second of the game was a robot half a metre taller than the people it was
-walking past, shaded differently from all of them, and unavailable until several
-megabytes had downloaded. Building the player out of the same rig as everybody
-else costs no download, has no loading state and no failure mode, and puts the
-player in the same city as the citizens instead of visiting it.
+The exception is **`character.glb`**: Quaternius' *RobotExpressive*, via the
+three.js examples, which the player can choose to be instead (Menu → Your
+character). It is a real skeleton with real clips — idle, walk, run, jump and a
+wave when you stand still long enough — loaded by `src/game/characterModel.ts`.
+
+It was the only body once, and that was the problem rather than the robot: it
+stood half a metre over everybody, shaded like plastic beside a matte city, and
+you waited for it before you could move. As a *choice* it is none of those. It
+is scaled from its own bounding box to the same `PERSON_HEIGHT` as the crowd,
+its PBR materials are rebuilt with the city's ramps so it shades like the
+pavement it stands on, it is fetched only when somebody picks it, and the
+procedural person keeps walking until it lands — so a slow network costs a few
+seconds of looking ordinary rather than a game that will not start.
 
 To change how people look, edit `src/city/character.ts`:
 

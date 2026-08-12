@@ -19,6 +19,18 @@ export class Input {
   /** True while a sprint key is held. */
   sprint = false;
 
+  /**
+   * True when the look this frame came from a finger rather than a mouse.
+   *
+   * The camera needs to know: a thumb drags perhaps a fifth of the screen
+   * before it runs out of hand, where a mouse has a whole desk, so the same
+   * radians-per-pixel that feels precise with a mouse feels like turning a ship
+   * with a phone. See the sensitivities in `cameraRig.ts`.
+   */
+  get lookIsTouch(): boolean {
+    return this.lookFromTouch;
+  }
+
   /** True while any walk input is active — used to drive the walk animation. */
   get isMoving(): boolean {
     return this.move.lengthSq() > 0.0004;
@@ -39,7 +51,8 @@ export class Input {
   /** Where and when the look pointer went down, to tell a tap from a drag. */
   private lookStart = new THREE.Vector2();
   private lookStartTime = 0;
-  private lookIsTouch = false;
+  /** Whether the pointer currently aiming the camera is a finger. */
+  private lookFromTouch = false;
   private pinchDistance: number | null = null;
   private readonly activePointers = new Map<number, THREE.Vector2>();
 
@@ -212,7 +225,7 @@ export class Input {
       this.lastLook.set(event.clientX, event.clientY);
       this.lookStart.set(event.clientX, event.clientY);
       this.lookStartTime = performance.now();
-      this.lookIsTouch = isTouch;
+      this.lookFromTouch = isTouch;
     }
   };
 
@@ -256,7 +269,7 @@ export class Input {
       // A quick tap that did not drag is a jump, not a camera move.
       const held = performance.now() - this.lookStartTime;
       const moved = this.lookStart.distanceTo(_tap.set(event.clientX, event.clientY));
-      if (this.lookIsTouch && held < 250 && moved < 12) this.jumpQueued = true;
+      if (this.lookFromTouch && held < 250 && moved < 12) this.jumpQueued = true;
       this.lookId = null;
     }
   };
