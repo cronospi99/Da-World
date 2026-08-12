@@ -3,182 +3,203 @@ import "./styles.css";
 
 import { Engine } from "./core/engine";
 import { Input } from "./core/input";
-import { PLACES } from "./content/places";
-import type { Place } from "./content/types";
+import { City } from "./city/city";
+import { DayNight } from "./city/daynight";
+import { Explorer, streetAt, type Discovery } from "./city/discovery";
+import { KIT_REQUESTS } from "./city/kit";
+import { loadKits } from "./city/kits";
+import { setNightGlow } from "./city/palette";
+import { Pedestrians } from "./city/pedestrians";
+import { Traffic } from "./city/traffic";
 import { CameraRig } from "./game/cameraRig";
 import { CharacterModel } from "./game/characterModel";
 import { Player } from "./game/player";
-import { animateProps, buildPlaces, placeAt } from "./game/placesBuilder";
-import { Progress } from "./learn/progress";
+import { CityHud } from "./ui/cityHud";
 import { Speech } from "./learn/speech";
-import { Hotspots } from "./ui/hotspots";
-import { Hud } from "./ui/hud";
-import { LessonCard } from "./ui/lesson";
-import { Quiz } from "./ui/quiz";
-import { createBirds } from "./world/birds";
-import { createEnvironment, followSun } from "./world/environment";
-import { updateMaterials } from "./world/materials";
-import { createScatter } from "./world/scatter";
-import { createTerrain } from "./world/terrain";
+import { createEnvironment } from "./world/environment";
+
+/**
+ * Da World — a whole city, on foot.
+ *
+ * The island this game started on has been replaced by the City Explorer
+ * world: ninety-one named places on nine streets, built from Kenney GLB kits,
+ * with traffic that stops at red lights and a sun that goes down. What is left
+ * of the original is the part worth keeping — the engine, the graded look, the
+ * rigged character and the feel of its movement — now pointed at a street
+ * instead of a meadow.
+ *
+ * Boot order matters and is the one thing that changed structurally: the models
+ * are several megabytes, so they are fetched *before* the city is built, behind
+ * the splash screen, with the loading bar following the real download.
+ */
 
 const container = document.querySelector<HTMLElement>("#app");
 if (!container) throw new Error("#app container is missing from the document");
 
-const engine = new Engine(container);
-const environment = createEnvironment(engine.scene);
+/** Where you wake up: the pavement on the north side of Main Street. */
+const START = new THREE.Vector2(24, 6.4);
 
-engine.scene.add(createTerrain());
-engine.scene.add(createScatter());
-
-const world = buildPlaces();
-engine.scene.add(world.group);
-
-const birds = createBirds();
-engine.scene.add(birds.group);
-
-// The player starts just outside the middle of the first place, facing in.
-const start = PLACES[0]?.center ?? [0, 0];
-const player = new Player(new THREE.Vector2(start[0], start[1] + 8));
-engine.scene.add(player.object);
-
-const rig = new CameraRig(engine.camera);
-const input = new Input(engine.canvas);
-
-// --- UI ---------------------------------------------------------------------
-const ui = document.createElement("div");
-ui.className = "ui-layer";
-container.appendChild(ui);
-
-const markerLayer = document.createElement("div");
-markerLayer.className = "marker-layer";
-ui.appendChild(markerLayer);
-
-const progress = new Progress();
-const speech = new Speech();
-
-const lesson = new LessonCard(ui, speech, progress);
-const quiz = new Quiz(ui, speech, progress);
-const hud = new Hud(ui, speech, progress, {
-  onOpenQuiz: (place) => openQuiz(place),
-});
-
-const hotspots = new Hotspots(markerLayer, world.targets, engine.camera, progress, (target) =>
-  openLesson(target),
-);
-
-function modalIsOpen(): boolean {
-  return lesson.isOpen || quiz.isOpen || hud.isInfoOpen;
-}
-
-function syncInput(): void {
-  input.enabled = !modalIsOpen();
-  if (!input.enabled) input.move.set(0, 0);
-}
-
-function openLesson(target: (typeof world.targets)[number]): void {
-  if (modalIsOpen()) return;
-  const wasComplete = progress.isPlaceComplete(target.place.id);
-  lesson.open(target);
-  syncInput();
-  // Announce a freshly finished place once the card closes.
-  pendingCompletion = wasComplete ? null : target.place;
-}
-
-function openQuiz(place: Place): void {
-  if (lesson.isOpen || quiz.isOpen) return;
-  quiz.open(place);
-  syncInput();
-}
-
-let pendingCompletion: Place | null = null;
-
-lesson.onClose(() => {
-  syncInput();
-  if (pendingCompletion && progress.isPlaceComplete(pendingCompletion.id)) {
-    hud.showToast(
-      `${pendingCompletion.name} complete!`,
-      "Tap ✓ to practise these words.",
-    );
-  }
-  pendingCompletion = null;
-});
-
-quiz.onClose(() => syncInput());
-
-input.onInteract(() => {
-  const target = hotspots.active;
-  if (target) openLesson(target);
-});
-
-input.onCancel(() => {
-  if (lesson.isOpen) lesson.close();
-  else if (quiz.isOpen) quiz.close();
-  else if (hud.isInfoOpen) hud.toggleInfo(false);
-  syncInput();
-});
-
-// --- loop -------------------------------------------------------------------
-engine.onUpdate((dt, elapsed) => {
-  input.update();
-  rig.update(dt, input, player.position, player.body.facing, input.isMoving);
-  if (!modalIsOpen()) player.update(dt, input, rig.yaw, rig.isManual);
-
-  updateMaterials(elapsed, player.position);
-  environment.update(elapsed, engine.camera.position);
-  animateProps(world.animated, elapsed);
-  birds.update(elapsed, player.position);
-  followSun(environment.sun, player.position);
-
-  hotspots.update(player.position);
-  hud.setPlace(placeAt(player.position.x, player.position.z));
-
-  const active = hotspots.active;
-  hud.setHint(
-    modalIsOpen() || !active
-      ? null
-      : `${active.spot.vocab.emoji}  Press E to learn "${active.spot.vocab.en}"`,
-  );
-
-  input.endFrame();
-});
-
-engine.start();
-
-// The rigged model arrives after the first frame; until then the primitive
-// stand-in is on screen, so a slow or missing GLB never blocks play.
-CharacterModel.load()
-  .then((model) => player.attachModel(model))
-  .catch((error) => {
-    console.warn("Character model failed to load, keeping the stand-in.", error);
-  });
-
-// Handy while authoring content: inspect and teleport from the console.
-(window as unknown as Record<string, unknown>).__world = {
-  player,
-  rig,
-  progress,
-  places: PLACES,
-  goTo(placeId: string) {
-    const place = PLACES.find((p) => p.id === placeId);
-    if (!place) return `no such place: ${placeId}`;
-    player.teleport(place.center[0], place.center[1]);
-    return place.name;
-  },
+const loaderBar = document.querySelector<HTMLElement>("#loaderBar");
+const setProgress = (fraction: number): void => {
+  if (loaderBar) loaderBar.style.width = `${Math.round(fraction * 100)}%`;
 };
 
-// The first frame is rendered by now, so the splash can go. The world then
-// fades up out of paper white, matching the reference's intro transition.
-requestAnimationFrame(() => {
-  document.querySelector("#loader")?.classList.add("is-hidden");
-  window.setTimeout(() => document.querySelector("#loader")?.remove(), 700);
+async function boot(): Promise<void> {
+  const engine = new Engine(container!);
+  const environment = createEnvironment(engine.scene, engine.renderer);
+  const dayNight = new DayNight(9);
 
-  const start = performance.now();
-  const FADE_MS = 1400;
-  const fade = () => {
-    const t = Math.min((performance.now() - start) / FADE_MS, 1);
-    engine.post.setTransition(t * t * (3 - 2 * t));
-    if (t < 1) requestAnimationFrame(fade);
+  await loadKits(KIT_REQUESTS, setProgress);
+
+  const city = new City();
+  engine.scene.add(city.group);
+  // The city can float a name plate over the two nearest places. That was
+  // written for a camera looking down at the rooftops; from the pavement the
+  // plates are the size of a bus and cover the street you are trying to read.
+  // The painted fascias say the same thing, in the place a sign belongs.
+  city.hintMarker.visible = false;
+
+  const traffic = new Traffic();
+  engine.scene.add(traffic.group);
+
+  const pedestrians = new Pedestrians();
+  engine.scene.add(pedestrians.group);
+
+  const player = new Player(START);
+  engine.scene.add(player.object);
+
+  const rig = new CameraRig(engine.camera);
+  const input = new Input(engine.canvas);
+
+  // --- UI -------------------------------------------------------------------
+  const ui = document.createElement("div");
+  ui.className = "ui-layer";
+  container!.appendChild(ui);
+
+  const speech = new Speech();
+  const explorer = new Explorer();
+  const hud = new CityHud(ui, speech, explorer, {
+    onReset: () => explorer.reset(),
+    onPause: (paused) => {
+      input.enabled = !paused;
+      if (paused) {
+        input.move.set(0, 0);
+        input.releasePointerLock();
+      }
+    },
+  });
+
+  /** The place whose door we are standing at, refreshed every frame. */
+  let nearby: Discovery | null = null;
+
+  function open(place: Discovery): void {
+    const isNew = explorer.discover(place);
+    hud.showPlace(place, isNew);
+    if (isNew && explorer.found.size === explorer.total) {
+      hud.showToast("Every place found!", "You have walked the whole city.");
+    }
+  }
+
+  input.onInteract(() => {
+    if (hud.isBlocking) return;
+    if (nearby) open(nearby);
+  });
+
+  input.onCancel(() => {
+    if (hud.isCardOpen) hud.closeCard();
+    else if (hud.isInfoOpen) hud.toggleInfo(false);
+    else input.releasePointerLock();
+  });
+
+  // Clicking the world hands the mouse to the camera, which is what a
+  // third-person game does and what makes the aiming feel direct. Escape (or a
+  // card opening) gives it back — the browser insists on that, and so should we.
+  engine.canvas.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch" || hud.isBlocking) return;
+    input.requestPointerLock();
+  });
+
+  addEventListener("keydown", (event) => {
+    if (event.key.toLowerCase() === "r" && !hud.isBlocking) rig.resetBehind(player.body.facing);
+  });
+
+  // --- loop -----------------------------------------------------------------
+  engine.onUpdate((dt, elapsed) => {
+    input.update();
+
+    if (!hud.isBlocking) dayNight.advance(dt);
+    const sky = dayNight.current();
+    environment.apply(sky);
+    engine.post.setMood(sky.night);
+    setNightGlow(sky.night);
+    city.setNight(sky.night);
+
+    rig.update(dt, input, player.position, player.body.facing, input.isMoving, input.sprint);
+    if (!hud.isBlocking) player.update(dt, input, rig.yaw, rig.isManual);
+
+    environment.follow(elapsed, player.position);
+    traffic.update(dt, elapsed, player.position.x, player.position.z);
+    pedestrians.update(dt, player.position.x, player.position.z);
+
+    nearby = explorer.nearest(player.position.x, player.position.z);
+    hud.setStreet(streetAt(player.position.x, player.position.z));
+    hud.setClock(`${dayNight.clockText()}  ·  ${dayNight.phase().name}`);
+    hud.setHint(hud.isBlocking || !nearby ? null : `${nearby.emoji}  Press E — ${nearby.name}`);
+    hud.update(dt);
+
+    input.endFrame();
+  });
+
+  engine.start();
+
+  // The rigged model arrives after the first frame; until then the primitive
+  // stand-in is on screen, so a slow or missing GLB never blocks play.
+  CharacterModel.load()
+    .then((model) => player.attachModel(model))
+    .catch((error) => {
+      console.warn("Character model failed to load, keeping the stand-in.", error);
+    });
+
+  // Handy while working on the city: inspect and teleport from the console.
+  (window as unknown as Record<string, unknown>).__world = {
+    player,
+    rig,
+    city,
+    dayNight,
+    explorer,
+    engine,
+    goTo: (x: number, z: number, facing = player.body.facing) => {
+      player.teleport(x, z);
+      rig.resetBehind(facing);
+    },
+    setHour: (hour: number) => dayNight.setHours(hour),
+    stats: () => ({ ...engine.renderer.info.render }),
   };
-  engine.post.setTransition(0);
-  fade();
+
+  // The first frame is rendered by now, so the splash can go. The world then
+  // fades up out of paper white, matching the original intro transition.
+  requestAnimationFrame(() => {
+    document.querySelector("#loader")?.classList.add("is-hidden");
+    window.setTimeout(() => document.querySelector("#loader")?.remove(), 700);
+
+    const start = performance.now();
+    const FADE_MS = 1400;
+    const fade = (): void => {
+      const t = Math.min((performance.now() - start) / FADE_MS, 1);
+      engine.post.setTransition(t * t * (3 - 2 * t));
+      if (t < 1) requestAnimationFrame(fade);
+    };
+    engine.post.setTransition(0);
+    fade();
+  });
+}
+
+boot().catch((error) => {
+  console.error(error);
+  const loader = document.querySelector("#loader");
+  if (loader) {
+    loader.innerHTML = `<h1>Oh no</h1><p class="loader-error">The city could not start.<br>${String(
+      error,
+    )}</p>`;
+  }
 });

@@ -670,19 +670,38 @@ canvas.webgl {
   color: #bdbcb8;
 }
 
-#loader .spinner {
-  width: 46px;
-  height: 46px;
-  border: 5px solid #e6e2d8;
-  border-top-color: #bdbcb8;
-  border-radius: 50%;
-  animation: loader-spin 0.9s linear infinite;
+/* The city is several megabytes of models, so the splash shows a real bar
+   rather than a spinner that tells you nothing. */
+#loader .loader-track {
+  width: min(260px, 60vw);
+  height: 6px;
+  border-radius: 999px;
+  background: #e6e2d8;
+  overflow: hidden;
 }
 
-@keyframes loader-spin {
-  to {
-    transform: rotate(360deg);
-  }
+#loader .loader-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: #bdbcb8;
+  transition: width 0.25s ease-out;
+}
+
+#loader .loader-note {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: #bdbcb8;
+}
+
+#loader .loader-error {
+  margin: 0;
+  max-width: 34ch;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #a8837c;
 }
 
 /* --- small screens --------------------------------------------------------- */

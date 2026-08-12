@@ -16,6 +16,13 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
  *
  * Everything upstream of this pass should stay "honest" — a plain blue sky and
  * plain green grass. The grade is what makes it summer.
+ *
+ * The city brought a clock with it, and one fixed grade cannot serve both noon
+ * and midnight: the cream gain that makes an afternoon glow turns a night
+ * street the colour of weak tea. So `setMood` slides the lift and the gain
+ * between a warm daytime set and a cool nocturnal one, and drops the overlay
+ * wash almost to nothing after dark. It is still one pass and still the same
+ * four moves — only the endpoints move.
  */
 const GradeShader = {
   uniforms: {
@@ -90,7 +97,29 @@ export interface Post {
   setSize(width: number, height: number): void;
   /** 0 = paper white, 1 = fully graded scene. */
   setTransition(value: number): void;
+  /** 0 = broad daylight, 1 = deep night. */
+  setMood(night: number): void;
 }
+
+/** The grade at noon and the grade at midnight; every hour is between them. */
+const MOOD = {
+  day: {
+    lift: new THREE.Color("#3b3550"),
+    gain: new THREE.Color("#fff3da"),
+    overlay: 0.045,
+    saturation: 1.02,
+    contrast: 1.13,
+    warmth: 0.05,
+  },
+  night: {
+    lift: new THREE.Color("#131a33"),
+    gain: new THREE.Color("#cddcff"),
+    overlay: 0.012,
+    saturation: 0.94,
+    contrast: 1.2,
+    warmth: -0.06,
+  },
+} as const;
 
 export function createPost(
   renderer: THREE.WebGLRenderer,
@@ -119,6 +148,16 @@ export function createPost(
     },
     setTransition(value) {
       grade.uniforms.uTransition.value = value;
+    },
+    setMood(night) {
+      const t = THREE.MathUtils.clamp(night, 0, 1);
+      const u = grade.uniforms;
+      (u.uLift.value as THREE.Color).copy(MOOD.day.lift).lerp(MOOD.night.lift, t);
+      (u.uGain.value as THREE.Color).copy(MOOD.day.gain).lerp(MOOD.night.gain, t);
+      u.uOverlayAmount.value = THREE.MathUtils.lerp(MOOD.day.overlay, MOOD.night.overlay, t);
+      u.uSaturation.value = THREE.MathUtils.lerp(MOOD.day.saturation, MOOD.night.saturation, t);
+      u.uContrast.value = THREE.MathUtils.lerp(MOOD.day.contrast, MOOD.night.contrast, t);
+      u.uWarmth.value = THREE.MathUtils.lerp(MOOD.day.warmth, MOOD.night.warmth, t);
     },
   };
 }

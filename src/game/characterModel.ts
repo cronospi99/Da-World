@@ -1,13 +1,13 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { toonMaterial } from "../world/materials";
+import { mat } from "../city/palette";
 import type { MotionState } from "./physics";
 
 /**
  * The rigged character.
  *
  * Loads `public/models/character.glb`, rescales it to the world, swaps its
- * PBR materials for our ramp materials so it shades like everything else, and
+ * materials for the city's so it shades like the street it is standing on, and
  * drives its animation clips from the physics state.
  *
  * Nothing here is specific to the model that ships with the repo — see
@@ -18,8 +18,15 @@ import type { MotionState } from "./physics";
 // server and under the /Da-World/ subpath on Pages.
 const MODEL_URL = `${import.meta.env.BASE_URL}models/character.glb`;
 
-/** The character is scaled so it stands this tall in world units. */
-const TARGET_HEIGHT = 2.3;
+/**
+ * The character is scaled so it stands this tall in world units.
+ *
+ * One tile of the city is about a metre and a half — a shop is two tiles wide
+ * and its ground floor is 2.3 tall — so a person is a shade over one. Getting
+ * this wrong is the fastest way to make a city look like a toy: at the island's
+ * old 2.3 the character was taller than a shopfront.
+ */
+const TARGET_HEIGHT = 1.75;
 
 /**
  * Rotate the model if its bind pose does not face +Z. The bundled robot
@@ -86,14 +93,15 @@ export class CharacterModel {
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
 
+      // The model ships glossy PBR materials that read as plastic beside the
+      // matte city. Its colours are kept; only the finish is replaced, and by
+      // going through the city's cache the whole character costs a handful of
+      // materials shared with everything else.
       const source = mesh.material as THREE.MeshStandardMaterial;
       if (!converted.has(source)) {
         converted.set(
           source,
-          toonMaterial({
-            color: source.color?.getHex() ?? 0xffffff,
-            ramp: "default",
-          }),
+          mat(source.color?.getHex() ?? 0xffffff, { roughness: 0.85, metalness: 0 }),
         );
       }
       mesh.material = converted.get(source)!;
