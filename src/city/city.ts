@@ -40,8 +40,6 @@ import {
   RepeatWrapping,
   SRGBColorSpace,
   CanvasTexture,
-  Sprite,
-  SpriteMaterial,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -76,7 +74,6 @@ import {
 import { PALETTE, mat, type MatOptions } from './palette';
 import { TILE_SIZE, uvScaleBox, uvScaleUniform } from './textures';
 import {
-  labelTexture,
   pavementNameTexture,
   shopSignTexture,
   streetBladeTexture,
@@ -652,36 +649,19 @@ function buildStreetBlades(parent: Group): void {
 
 export interface BuildingView {
   building: Building;
-  label: Sprite;
   /** Height of the shell that actually got built, in tiles. */
   top: number;
 }
 
-/**
- * A floating name plate whose texture is only drawn the first time it is
- * needed. Two of the ninety-odd plates are on screen at any moment, and a
- * student never walks past most of them, so painting them all at boot was
- * tens of megabytes of canvas nobody would ever look at.
+/*
+ * There used to be a floating name plate over every place, shown for the two
+ * nearest as you walked. It was written for a camera looking down at the
+ * rooftops; from the pavement a plate is the size of a bus and it covers the
+ * shopfront whose painted sign you are supposed to be reading. The signage is
+ * on the buildings and on the pavement, where signage belongs, so the plates
+ * are gone rather than merely hidden — a sprite and a canvas each, ninety-four
+ * times over, for something nobody should see.
  */
-function lazyLabelSprite(text: string): Sprite {
-  const sprite = new Sprite(new SpriteMaterial({ transparent: true, depthTest: false }));
-  sprite.scale.set(3.4, 0.94, 1);
-  sprite.renderOrder = 5;
-  sprite.visible = false;
-  sprite.userData.label = text;
-  return sprite;
-}
-
-function showLabel(sprite: Sprite): void {
-  if (!sprite.material.map) {
-    sprite.material.map = labelTexture(sprite.userData.label as string);
-    sprite.material.needsUpdate = true;
-  }
-  sprite.visible = true;
-}
-
-const labelSprite = (b: Building): Sprite => lazyLabelSprite(`${b.emoji} ${b.name}`);
-const zoneLabelSprite = (z: Zone): Sprite => lazyLabelSprite(`${z.emoji} ${z.name}`);
 
 /* --------------------------- landmark shells --------------------------- */
 
@@ -922,10 +902,7 @@ function buildBuildings(parent: Group): BuildingView[] {
     }
 
     addFascia(signGroup, b, height);
-    const label = labelSprite(b);
-    label.position.set(cx, CURB + height + 1.3, cz);
-    signGroup.add(label);
-    views.push({ building: b, label, top: CURB + height });
+    views.push({ building: b, top: CURB + height });
   }
 
   // One mesh per kit and colour variation: eight or so draw calls for ninety
@@ -1035,6 +1012,16 @@ function treeSpots(): TreeSpot[] {
 }
 
 /**
+ * Every tree in the world, computed once.
+ *
+ * `ground.ts` reads this to keep the camera out of the foliage, which is why
+ * it is a module constant rather than something `buildVegetation` keeps to
+ * itself: the trees have to exist before the first frame is framed, not just
+ * before it is drawn.
+ */
+export const TREE_SPOTS: TreeSpot[] = treeSpots();
+
+/**
  * Trees.
  *
  * Two models from the suburban kit, in as many colour variations as the kit
@@ -1045,7 +1032,7 @@ function treeSpots(): TreeSpot[] {
  */
 function buildVegetation(parent: Group): void {
   const rand = mulberry32(21);
-  const spots = treeSpots();
+  const spots = TREE_SPOTS;
   const variations = variationCount('suburban');
 
   const buckets = new Map<string, TreeSpot[]>();
@@ -1453,10 +1440,9 @@ function buildSportsPark(bags: GeoBag, p: Zone): void {
   }
 }
 
-function buildParks(parent: Group): Sprite[] {
+function buildParks(parent: Group): void {
   const bags: GeoBag = new Map();
   const props = new KitBag();
-  const labels: Sprite[] = [];
   const signGroup = new Group();
 
   for (const p of PARKS) {
@@ -1483,17 +1469,11 @@ function buildParks(parent: Group): Sprite[] {
     board.position.set(sx, CURB + 1.4, sz + (faceSouth ? 0.09 : -0.09));
     board.rotation.y = faceSouth ? 0 : Math.PI;
     signGroup.add(board);
-
-    const label = zoneLabelSprite(p);
-    label.position.set(p.x + p.w / 2, CURB + 3.4, p.y + p.h / 2);
-    signGroup.add(label);
-    labels.push(label);
   }
 
   props.flush(parent);
   flush(bags, parent, true, true);
   parent.add(signGroup);
-  return labels;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1507,14 +1487,13 @@ export class City {
   readonly hintMarker: Mesh;
   private painter = new DecalPainter();
   private lamplight = new Lamplight();
-  private zoneLabels: Sprite[];
   /** Where the roof of each place ended up, so the hint arrow clears it. */
   private tops = new Map<string, number>();
 
   constructor() {
     buildGround(this.group, this.painter);
     buildPavementNames(this.group, this.painter);
-    this.zoneLabels = buildParks(this.group);
+    buildParks(this.group);
     this.views = buildBuildings(this.group);
     for (const v of this.views) this.tops.set(v.building.id, v.top);
     buildVegetation(this.group);
@@ -1538,43 +1517,15 @@ export class City {
   }
 
   /**
-   * Name plates float over the two closest places only. Showing every sign at
-   * once buried the city under text — and the point is to make the student
-   * walk up to a shop and read it, not to hand them the whole map.
+   * The one thing the city draws on your behalf: a gold arrow over the roof of
+   * the place a citizen's hint is pointing at.
+   *
+   * It is the whole navigation aid, and it only appears when you ask for a
+   * hint. There is no minimap and no floating name plate, because finding a
+   * shop by reading the street you are on is the exercise — the arrow says
+   * *over there*, and you still have to walk it.
    */
-  update(playerX: number, playerZ: number, time: number, hintTarget: Building | null): void {
-    let bestA: BuildingView | null = null;
-    let bestB: BuildingView | null = null;
-    let dA = Infinity;
-    let dB = Infinity;
-    for (const v of this.views) {
-      v.label.visible = false;
-      const b = v.building;
-      const dx = b.x + b.w / 2 - playerX;
-      const dz = b.y + b.h / 2 - playerZ;
-      const dist = dx * dx + dz * dz;
-      if (dist > 64) continue;
-      if (dist < dA) {
-        dB = dA;
-        bestB = bestA;
-        dA = dist;
-        bestA = v;
-      } else if (dist < dB) {
-        dB = dist;
-        bestB = v;
-      }
-    }
-    if (bestA) showLabel(bestA.label);
-    if (bestB) showLabel(bestB.label);
-
-    // Park plates appear whenever the student is inside or beside the zone.
-    PARKS.forEach((p, i) => {
-      const dx = Math.max(p.x - playerX, 0, playerX - (p.x + p.w));
-      const dz = Math.max(p.y - playerZ, 0, playerZ - (p.y + p.h));
-      if (dx * dx + dz * dz < 16) showLabel(this.zoneLabels[i]);
-      else this.zoneLabels[i].visible = false;
-    });
-
+  update(time: number, hintTarget: Building | null): void {
     if (hintTarget) {
       this.hintMarker.visible = true;
       this.hintMarker.position.set(

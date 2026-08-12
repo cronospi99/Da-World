@@ -87,7 +87,13 @@ anything like, and which keeps the bespoke procedural shell it always had.
 Carriageway, kerbs, paving, lane markings, zebra crossings, stop lines and every
 painted street name stay procedural. They are *derived from `layout.ts`* — the
 same table that decides where a crossing is walkable and what "two blocks" means
-to the route generator — so a tile of drift between the paint and the grid would
-put a shop on the wrong street in a direction the game had just given. The roads
-kit is used for what stands beside the road instead: lamps, signs, cones and
-barriers.
+to the route generator in `src/game/quests.ts` — so a tile of drift between the
+paint and the grid would put a shop on the wrong street in a direction the game
+had just given. The roads kit is used for what stands beside the road instead:
+lamps, signs, cones and barriers.
+
+The painted signage is also the *only* signage. There are no name plates
+floating over the buildings: a plate written for a camera looking down at the
+rooftops is the size of a bus from the pavement, and it covers the shopfront it
+is naming. What a place is called is on its fascia and what street it is on is
+under your feet, which is where a city puts them.

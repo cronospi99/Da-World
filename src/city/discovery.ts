@@ -1,132 +1,56 @@
-import { BUILDINGS, doorOf, type Building } from "./buildings";
-import { HROADS, PARKS, ROAD_W, VROADS, type Zone } from "./layout";
+import { BUILDINGS, doorOf } from "./buildings";
+import { HROADS, PARKS, ROAD_W, VROADS } from "./layout";
 
 /**
- * Finding your way around.
+ * Knowing where you are, and keeping count of where you have been.
  *
- * The island's learning loop was a marker over an object and a card of
- * vocabulary. A city does not need markers: the shops have their names painted
- * on them, so walking up to a door *is* the interaction. Every one of the 91
- * places and 3 parks is discovered by standing in front of it, and the card
- * that pops up tells you what it is and which street it is on — the two facts
- * every direction in English is built out of.
+ * There is no card that jumps up with a place's name on it. The shops have
+ * their names painted on the fascia and their street painted on the pavement,
+ * so *reading* is the interaction — walking up to a door and looking at it is
+ * the thing the game asks you to do, and interrupting that with a pop-up
+ * teaches nothing except how to dismiss a pop-up.
+ *
+ * What is left is bookkeeping. Walking past a door quietly ticks the place off
+ * a list the missions count, and `streetAt` answers the one question the HUD
+ * does ask on your behalf: which street is this?
  *
  * Everything here is derived from the city's own tables, so nothing is written
- * twice: move a shop and its door, its street and its card all move with it.
+ * twice: move a shop and its door, its street and its tally all move with it.
  */
 
-const STORAGE_KEY = "da-world:found";
+/** How close to a door you have to walk for the place to count, in tiles. */
+const DOOR_REACH = 2.3;
 
-export interface Discovery {
+export interface Visit {
   id: string;
   name: string;
-  /** Noun phrase with its article: "a bakery", "an airport". */
-  type: string;
   emoji: string;
-  street: string;
-  /** The sentence the card reads out — plain, and true of the geometry. */
-  sentence: string;
 }
 
-const fromBuilding = (b: Building): Discovery => ({
-  id: b.id,
-  name: b.name,
-  type: b.type,
-  emoji: b.emoji,
-  street: b.street,
-  sentence: `${b.name} is ${b.type} on ${b.street}.`,
-});
-
-const fromZone = (z: Zone): Discovery => ({
-  id: z.id,
-  name: z.name,
-  type: z.type,
-  emoji: z.emoji,
-  street: z.street,
-  sentence: `${z.name} is ${z.type} on ${z.street}.`,
-});
-
-/** Everything there is to find, in no particular order. */
-export const PLACES: Discovery[] = [...BUILDINGS.map(fromBuilding), ...PARKS.map(fromZone)];
-
-/** How close to a door you have to stand, in tiles. */
-const DOOR_REACH = 2.6;
-
-export class Explorer {
-  readonly found = new Set<string>();
-  private readonly listeners: Array<() => void> = [];
-
-  constructor() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) for (const id of JSON.parse(raw) as string[]) this.found.add(id);
-    } catch {
-      // A corrupt or unavailable store is not a reason to refuse to play.
+/**
+ * Every place whose door the player is currently standing at, plus any park
+ * they are inside. Callers add these to the found set; the sweep is cheap
+ * enough to run every frame at ninety-odd footprints.
+ */
+export function visitsAt(x: number, z: number, found: Set<string>): Visit[] {
+  const out: Visit[] = [];
+  for (const b of BUILDINGS) {
+    if (found.has(b.id)) continue;
+    const door = doorOf(b);
+    const dx = door.x - x;
+    const dz = door.y - z;
+    if (dx * dx + dz * dz < DOOR_REACH * DOOR_REACH) {
+      out.push({ id: b.id, name: b.name, emoji: b.emoji });
     }
   }
-
-  get total(): number {
-    return PLACES.length;
-  }
-
-  subscribe(fn: () => void): void {
-    this.listeners.push(fn);
-  }
-
-  reset(): void {
-    this.found.clear();
-    this.save();
-  }
-
-  /**
-   * The place you are standing in front of, or null.
-   *
-   * Doors win over parks, because a shop on the edge of Central Park should
-   * announce itself as the shop you are looking at rather than the park you
-   * happen to be standing in.
-   */
-  nearest(x: number, z: number): Discovery | null {
-    let best: Building | null = null;
-    let bestDist = DOOR_REACH * DOOR_REACH;
-    for (const b of BUILDINGS) {
-      const door = doorOf(b);
-      const dx = door.x - x;
-      const dz = door.y - z;
-      const dist = dx * dx + dz * dz;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = b;
-      }
-    }
-    if (best) return fromBuilding(best);
-
-    for (const p of PARKS) {
-      if (x > p.x && x < p.x + p.w && z > p.y && z < p.y + p.h) return fromZone(p);
-    }
-    return null;
-  }
-
-  /** Record a place as found. Returns false if it already was. */
-  discover(place: Discovery): boolean {
-    if (this.found.has(place.id)) return false;
-    this.found.add(place.id);
-    this.save();
-    for (const fn of this.listeners) fn();
-    return true;
-  }
-
-  private save(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...this.found]));
-    } catch {
-      // Private browsing: play on, just do not remember.
+  for (const p of PARKS) {
+    if (found.has(p.id)) continue;
+    if (x > p.x && x < p.x + p.w && z > p.y && z < p.y + p.h) {
+      out.push({ id: p.id, name: p.name, emoji: p.emoji });
     }
   }
+  return out;
 }
-
-/* ------------------------------------------------------------------ *
- * Where am I?                                                         *
- * ------------------------------------------------------------------ */
 
 /**
  * The street you are standing on or beside.

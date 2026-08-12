@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { blocked, groundHeight, resolveMove } from "../city/ground";
+import { groundHeight, nearestWalkable, resolveMove } from "../city/ground";
 
 /**
  * Character physics, ported from the reference world's `collisionPhysics`.
@@ -38,10 +38,12 @@ export const PHYSICS = {
   gravity: -0.009832,
   /**
    * Upward velocity on jump. Reference: 0.2, which gives ~2 units of height
-   * against the gravity above. Tuned here for ~2.6 units — a little over our
-   * character's own height, which reads right at this scale.
+   * against the gravity above. Tuned here for a shade over a metre — a little
+   * under the character's own height. A pedestrian who can jump twice their
+   * height reads as a superhero, and next to a shopfront it made the whole
+   * city look like a toy.
    */
-  jumpForce: 0.225,
+  jumpForce: 0.155,
   /** How fast the character turns towards its heading, per tick. */
   directionLerp: 0.075,
   /** Below this speed the character does not bother turning. */
@@ -90,7 +92,8 @@ export class CharacterBody {
   private readonly move = { x: 0, z: 0, hitX: false, hitZ: false };
 
   constructor(start: THREE.Vector2) {
-    this.position.set(start.x, groundHeight(start.x, start.y), start.y);
+    const { x, z } = nearestWalkable(start.x, start.y);
+    this.position.set(x, groundHeight(x, z), z);
   }
 
   /** Horizontal speed in world units per second. */
@@ -200,14 +203,9 @@ export class CharacterBody {
 
   /** Drop the character onto the street at a point (used by the debug hooks). */
   teleport(x: number, z: number): void {
-    // Never land inside a wall, however careless the caller was.
-    let px = x;
-    let pz = z;
-    for (let r = 0; blocked(px, pz) && r < 24; r++) {
-      const a = r * 2.4;
-      px = x + Math.cos(a) * (1 + r * 0.5);
-      pz = z + Math.sin(a) * (1 + r * 0.5);
-    }
+    // Never land inside a wall or in the middle of the road, however careless
+    // the caller was: the nearest pavement will do.
+    const { x: px, z: pz } = nearestWalkable(x, z);
     this.position.set(px, groundHeight(px, pz), pz);
     this.velocity.set(0, 0, 0);
     this.grounded = true;

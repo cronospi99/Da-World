@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
 import { mat } from "../city/palette";
-import { CharacterModel } from "./characterModel";
+import { CharacterModel, TARGET_HEIGHT } from "./characterModel";
 import { CharacterBody, type MotionState } from "./physics";
 
 /**
@@ -27,10 +27,20 @@ const SPRINT_BOOST = 1.85;
 const BORED_AFTER = 9;
 const BORED_LENGTH = 3.4;
 
+/**
+ * The primitive stand-in is modelled at roughly 2.2 units tall, because it was
+ * drawn for the island. It is scaled to the same height as the rigged model so
+ * that the moment before the GLB arrives — and the case where the GLB never
+ * arrives at all — does not put a giant on the pavement.
+ */
+const STAND_IN_HEIGHT = 2.2;
+
 export class Player {
   readonly object = new THREE.Group();
   readonly body: CharacterBody;
 
+  /** Scales the primitive parts to the world; `rig` keeps its own animation. */
+  private readonly standIn = new THREE.Group();
   private readonly rig = new THREE.Group();
   private readonly legs: THREE.Mesh[] = [];
   private readonly arms: THREE.Mesh[] = [];
@@ -99,7 +109,9 @@ export class Player {
       child.receiveShadow = true;
     });
 
-    this.object.add(this.rig);
+    this.standIn.scale.setScalar(TARGET_HEIGHT / STAND_IN_HEIGHT);
+    this.standIn.add(this.rig);
+    this.object.add(this.standIn);
     this.object.name = "player";
     this.object.position.copy(this.body.position);
   }
@@ -203,7 +215,7 @@ export class Player {
   /** Swap the primitive stand-in for the rigged model. */
   attachModel(model: CharacterModel): void {
     this.model = model;
-    this.rig.visible = false;
+    this.standIn.visible = false;
     this.object.add(model.object);
   }
 
