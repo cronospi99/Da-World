@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
-import { toonMaterial } from "../world/materials";
+import { mat } from "../city/palette";
 import { CharacterModel } from "./characterModel";
 import { CharacterBody, type MotionState } from "./physics";
 
@@ -13,6 +13,15 @@ import { CharacterBody, type MotionState } from "./physics";
  *
  * It also owns one movement subtlety — see `directionFor` at the bottom.
  */
+
+/**
+ * How much harder the character pushes while sprinting.
+ *
+ * It raises the acceleration rather than the damping, so the top speed rises
+ * with it and you still stop on a sixpence when you let go — which is what
+ * keeps a run down a pavement from turning into an ice rink.
+ */
+const SPRINT_BOOST = 1.85;
 
 /** Seconds standing still before the idle fidget plays. */
 const BORED_AFTER = 9;
@@ -49,10 +58,13 @@ export class Player {
   constructor(start: THREE.Vector2) {
     this.body = new CharacterBody(start);
 
-    const skin = toonMaterial({ color: "#e8b98d", ramp: "skin" });
-    const shirt = toonMaterial({ color: "#d96f52" });
-    const trousers = toonMaterial({ color: "#4c6a86" });
-    const felt = toonMaterial({ color: "#f3e3bd", ramp: "soft" });
+    // The stand-in is only ever on screen for the moment before the rigged
+    // model arrives, so it borrows the city's own materials rather than
+    // dragging a second shading model into the build.
+    const skin = mat("#e8b98d");
+    const shirt = mat("#d96f52");
+    const trousers = mat("#4c6a86");
+    const felt = mat("#f3e3bd", { roughness: 0.95 });
 
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.5, 3, 8), shirt);
     torso.position.y = 1.15;
@@ -109,6 +121,7 @@ export class Player {
   update(dt: number, input: Input, cameraYaw: number, cameraIsManual: boolean): void {
     const direction = this.directionFor(input, cameraYaw, cameraIsManual);
 
+    this.body.boost = input.sprint ? SPRINT_BOOST : 1;
     this.body.update(dt, direction, input.consumeJump());
     if (this.model && this.body.justJumped) this.model.onJump();
 

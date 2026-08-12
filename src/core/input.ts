@@ -3,8 +3,10 @@ import * as THREE from "three";
 /**
  * Unified keyboard / mouse / touch input.
  *
- * Desktop: WASD or arrows to walk, space to jump, drag to orbit, wheel to
- * zoom, E (or Enter) to interact.
+ * Desktop: WASD or arrows to walk, Shift to sprint, space to jump, wheel to
+ * zoom, E (or Enter) to interact. Clicking the canvas locks the pointer and
+ * hands the mouse to the camera, the way a third-person game expects; Esc
+ * releases it and drag-to-look takes over again.
  * Touch: left half of the screen is a virtual stick, right half orbits, pinch
  * zooms, and a quick tap on the right half jumps.
  */
@@ -14,6 +16,8 @@ export class Input {
   /** Consumed (and reset) by the camera rig every frame. */
   readonly look = new THREE.Vector2();
   zoom = 0;
+  /** True while a sprint key is held. */
+  sprint = false;
 
   /** True while any walk input is active — used to drive the walk animation. */
   get isMoving(): boolean {
@@ -40,7 +44,11 @@ export class Input {
   /** Set while a modal is open so the world stops responding. */
   enabled = true;
 
+  /** The element the pointer gets locked to, so the mouse can aim the camera. */
+  private readonly surface: HTMLElement;
+
   constructor(element: HTMLElement) {
+    this.surface = element;
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
@@ -51,7 +59,37 @@ export class Input {
     window.addEventListener("pointercancel", this.onPointerUp);
     element.addEventListener("wheel", this.onWheel, { passive: false });
     element.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("mousemove", this.onLockedMove);
   }
+
+  /** True while the mouse is driving the camera directly. */
+  get pointerLocked(): boolean {
+    return document.pointerLockElement === this.surface;
+  }
+
+  /**
+   * Ask for the pointer. Browsers only grant this from a user gesture, and
+   * only some time after a previous unlock, so a refusal is normal and the
+   * drag-to-look path stays available.
+   */
+  requestPointerLock(): void {
+    if (this.pointerLocked) return;
+    void this.surface.requestPointerLock?.();
+  }
+
+  releasePointerLock(): void {
+    if (this.pointerLocked) document.exitPointerLock?.();
+  }
+
+  /**
+   * While locked there is no cursor to drag, so movement arrives as deltas on
+   * the document instead. Same accumulator, so the camera cannot tell.
+   */
+  private onLockedMove = (event: MouseEvent): void => {
+    if (!this.enabled || !this.pointerLocked) return;
+    this.look.x += event.movementX;
+    this.look.y += event.movementY;
+  };
 
   onInteract(fn: () => void): void {
     this.interactHandlers.push(fn);
@@ -103,6 +141,10 @@ export class Input {
       for (const fn of this.interactHandlers) fn();
       return;
     }
+    if (key === "shift") {
+      this.sprint = true;
+      return;
+    }
     if (key === "w" || key === "a" || key === "s" || key === "d") {
       event.preventDefault();
       this.keys.add(key);
@@ -110,11 +152,14 @@ export class Input {
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {
-    this.keys.delete(normalizeKey(event.key));
+    const key = normalizeKey(event.key);
+    if (key === "shift") this.sprint = false;
+    this.keys.delete(key);
   };
 
   private onBlur = (): void => {
     this.keys.clear();
+    this.sprint = false;
     this.move.set(0, 0);
     this.stickId = null;
     this.lookId = null;
@@ -123,6 +168,9 @@ export class Input {
 
   private onPointerDown = (event: PointerEvent): void => {
     if (!this.enabled) return;
+    // With the pointer locked the mouse is already feeding the camera; a
+    // second, drag-shaped source of the same movement would double it.
+    if (this.pointerLocked) return;
     this.activePointers.set(event.pointerId, new THREE.Vector2(event.clientX, event.clientY));
 
     const isTouch = event.pointerType === "touch";

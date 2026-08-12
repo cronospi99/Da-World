@@ -1,220 +1,102 @@
 # Da World
 
-An explorable little 3D world where every place teaches you English. You walk
-around an island, wander into a harbour or a market, touch the things you see,
-and collect the English word for each one — with pronunciation, a translation,
-an example sentence, and a quick quiz once you have seen everything in a place.
-
-Inspired by the feel of *Summer Afternoon*-style WebGL worlds: warm colours,
-soft low-poly shapes, paper cards that pop up when you interact.
+A whole 3D city you walk around in third person. Ninety-one named places on nine
+streets, traffic that stops at red lights, people on the pavement and a sun that
+goes down — and every shop, park and landmark tells you what it is and which
+street it is on, in English, out loud.
 
 **Live:** https://cronospi99.github.io/Da-World/
-
-## Running it
 
 ```bash
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # typecheck + production build into dist/
-npm run preview  # serve the built output
+npm run preview  # serve the built output on :4173
+npm run smoke    # boots the build in headless Chromium and screenshots it
 ```
-
-The world is generated from primitives at load time — terrain, props, grass and
-sky are all code. The one binary asset is the character model,
-`public/models/character.glb` (CC0, see `public/models/README.md`).
-Pronunciation uses the browser's built-in speech synthesis.
-
-## How the look works
-
-The art direction is reverse-engineered from the reference bundle rather than
-guessed at. Four things do almost all of the work, and they are worth
-understanding before changing any of them:
-
-**1. Ramp shading, not PBR** (`src/world/materials.ts`). No surface in the game
-is lit physically. Each one looks up a hand-authored gradient with
-`dot(N, L)` remapped to `0..1`, so shadow is a different *hue* — cool violet,
-deep teal for foliage — rather than a darker version of the lit colour. This is
-exactly what the reference does with its `ramps.png` atlas. `MeshToonMaterial`
-already samples a gradient this way, but stock three.js keeps only the red
-channel; a two-line patch to `getGradientIrradiance` gives full RGB ramps and
-lets each material pick its own row. Rows live in `RAMP_STOPS` — edit those and
-the entire world changes mood at once.
-
-**2. The grade** (`src/core/post.ts`). The reference ships a baked 3D LUT and
-applies it fullscreen; that single pass is what turns an ordinary render into a
-warm afternoon. We reproduce the same moves analytically: violet lift in the
-shadows, cream gain in the highlights, a small S-curve, and the same `#FFF9EE`
-overlay wash. **Everything upstream stays honest** — the sky really is blue
-(`#248fd5`), the grass really is green. Do not pre-warm the source colours;
-that is the grade's job, and doing it twice is what turns the ground to mud.
-
-**3. Haze** (`src/world/environment.ts`). A short far plane (190) with fog in
-the horizon colour, plus a bright band sitting exactly on the skyline. Distance
-is meant to dissolve, not stay legible.
-
-**4. Motion everywhere.** Wind sway and drifting cloud shadows are injected into
-every material; grass bends away from you as you walk through it; the camera
-has a slow hand-held drift; birds circle overhead.
-
-A note on exposure: because ramp shading multiplies rather than replaces, total
-light above `1.0` clips toward white and desaturates everything to beige. If
-the world starts looking washed out, the fix is almost always to lower the sun
-intensity or `toneMappingExposure`, not to add more saturation in the grade.
-
-## The character
-
-`src/game/characterModel.ts` loads the rigged GLB, scales it from its own
-bounding box, swaps its PBR materials for our ramp materials so it shades like
-everything else, and drives its clips from the physics state — Idle, Walking,
-Running, Jump and a Wave when it has been standing still for nine seconds. The
-walk/run cycle is time-scaled by actual ground speed so the feet do not skate.
-
-The model is swappable: replace the GLB and adjust `TARGET_HEIGHT`, the `CLIPS`
-name map and `FACING_OFFSET`. That last one matters — if your model was exported
-facing -Z, it will moonwalk until you set it to `Math.PI`.
-
-The primitive stand-in is still in `player.ts` and shows until the GLB resolves,
-so a slow or missing model never costs you the game.
-
-## How the movement works
-
-`src/game/physics.ts` is a port of the reference world's `collisionPhysics`,
-using its own constants: `damp 0.92`, `gravity -0.009832`, `directionLerp
-0.075`, `rotVelocityMin/Max 0.0035/0.02`. Only `positionForce` and `jumpForce`
-are scaled (×2.53), because our island is bigger than theirs — everything that
-defines the *feel* is verbatim.
-
-Two things worth knowing before touching it:
-
-**The constants are per frame at 60 Hz, not per second.** The original
-integrates `position += velocity` once a frame with those raw numbers. Instead
-of converting them, `CharacterBody` runs a fixed-timestep accumulator at exactly
-60 Hz. At 60 fps that is the original behaviour unchanged; at 30 or 144 fps it
-is identical *physically*, which a naive `value * dt` port would not be.
-Verified: walking three seconds covers 20.76 / 20.76 / 20.73 units at 30 / 60 /
-144 fps, and the jump peaks at 2.463 units in all three.
-
-**There is no collision mesh.** The reference raycasts a `collider.bin`; we use
-`heightAt(x, z)`, which is analytic, exact and free. Steep ground reduces
-traction rather than blocking movement — a hard block is how characters get
-wedged into hillsides. The shoreline is the only real wall, and it is resolved
-per axis so you slide along the beach instead of stopping dead.
-
-Resulting numbers: top speed ~8.7 units/s, jump 2.46 units high, 0.72 s of
-airtime, with coyote time (0.1 s) and jump buffering (0.15 s).
-
-### The camera follows you, without bending your path
-
-When you walk, the camera eases around to sit behind your heading; any manual
-drag pauses that for 1.4 s so it never fights you.
-
-The naive version of this circles forever: hold `D`, you move right, the camera
-rotates behind you, "right" now points somewhere else, and you spiral. So
-`Player.directionFor` computes the world heading **once, when the input
-changes**, and holds it. The camera can then swing freely while your path stays
-straight. Measured: holding `D` rotates the camera 69° while the heading drifts
-0.6°.
-
-## Deploying
-
-`.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on
-every push to this branch (and to `main`, for when it lands there). Nothing to
-run by hand — pushing is the deploy.
-
-`vite.config.ts` sets `base: "./"`, so built asset paths are relative and work
-from the `/Da-World/` project-pages subpath. If you ever switch to a custom
-domain at the root, that setting can stay as it is.
 
 ## Controls
 
-| Action  | Desktop                         | Touch                       |
-| ------- | ------------------------------- | --------------------------- |
-| Move    | `W A S D` / arrow keys          | left half of the screen     |
-| Jump    | `Space`                         | quick tap on the right half |
-| Look    | drag                            | drag on the right half      |
-| Zoom    | scroll wheel                    | pinch                       |
-| Learn   | `E` / `Enter` (or click marker) | tap the marker              |
-| Close   | `Esc`                           | tap the ✕ or the backdrop   |
+| | |
+| --- | --- |
+| Move | `W A S D` / arrow keys, or the left half of a touch screen |
+| Sprint | `Shift` |
+| Jump | `Space`, or a quick tap on the right half |
+| Look | Click once to take the mouse, then move it. `Esc` gives it back |
+| Zoom | Scroll, or pinch |
+| Look at a place | Walk to its door and press `E` |
+| Re-centre the camera | `R` |
 
-## Adding your own places and words
+## Where the city came from
 
-Everything the player sees and learns lives in **`src/content/places.ts`**.
-The engine reads that array — you should not need to touch anything else to add
-a location or a word.
+The island this game started on has been replaced by the world from
+[City Explorer](https://github.com/cronospi99/CityExplorer): its street grid, its
+ninety-one places, its buildings, road markings, painted street names, parks,
+traffic and day/night cycle, all built from CC0 [Kenney](https://kenney.nl) GLB
+kits (see `docs/CITY.md`). Those modules live under `src/city/` and are a
+straight port — the rule they obey is that the world is the source of truth and
+everything else is derived from it, so a place's street, its door and the
+sentence you hear all come from the same table.
 
-```ts
-{
-  id: "airport",                 // save key; renaming resets its progress
-  name: "The Airport",
-  nameEs: "El Aeropuerto",
-  intro: "Announcements everywhere. Listen carefully.",
-  center: [0, -70],              // where it sits on the terrain
-  radius: 22,                    // terrain is flattened inside this
-  palette: { ground: "#c9c3b0", accent: "#6d8fa8", prop: "#4d6376" },
-  spots: [
-    {
-      id: "airport.gate",
-      offset: [4, -6],           // relative to `center`
-      prop: "sign",              // one of the PropKind values
-      vocab: {
-        en: "the gate",
-        es: "la puerta de embarque",
-        sentence: "Your flight leaves from gate twelve.",
-        sentenceEs: "Tu vuelo sale de la puerta doce.",
-        wordClass: "noun",
-        level: "A2",
-        emoji: "🛫",
-      },
-    },
-  ],
-}
-```
+What is left of the original island is the part worth keeping, and it is what
+turns a city model into a game you can walk around:
 
-Guidelines that keep the world tidy:
+- **`core/engine.ts`** — renderer, loop, and the composer the grade hangs off.
+- **`core/post.ts`** — the colour grade. The reference ships a baked LUT; this
+  reproduces the same moves analytically (violet lift, cream gain, a small
+  S-curve, a `#FFF9EE` wash). It now takes a `night` factor and slides between a
+  warm daytime set and a cool nocturnal one, because one fixed grade cannot
+  serve both noon and midnight.
+- **`world/environment.ts`** — the sky dome with its drifting cloud sheet and
+  the bright haze band on the skyline, now driven hour by hour off the city's
+  clock, plus a pre-filtered environment map so every surface picks up sky from
+  above and ground bounce from below.
+- **`game/physics.ts`** — the reference world's `collisionPhysics`, constants
+  and all, retargeted from a heightfield island to a flat city with walls.
+- **`game/characterModel.ts`** — the rigged GLB, its clips driven from the
+  physics state and time-scaled by ground speed so the feet do not skate.
 
-- Keep `offset` within roughly `0.8 * radius` so props stay on flat ground.
-- Keep places at least `radiusA + radiusB + 10` apart so their plateaus do not
-  fight each other. Roads are drawn automatically from the **first** place in
-  the array to every other one, so the first entry is the hub.
-- `id`s are the save keys in `localStorage`. Renaming one resets that word.
+## How walking around a city differs from walking around an island
 
-### Available props
+Three things had to change, and they are the interesting part of this port.
 
-`tree`, `palm`, `rock`, `crate`, `barrel`, `boat`, `lamp`, `bench`, `sign`,
-`tent`, `well`, `stall`, `house`, `flag`, `campfire`, `clock`.
+**The floor is flat and the walls are everywhere.** The island was a
+heightfield: one analytic function gave you the floor, and the only wall was the
+shoreline. `src/city/ground.ts` answers the same two questions for a city —
+ground height (road, or a kerb's worth of pavement, blended across the tile edge
+so stepping off a kerb is not a stumble) and *may I move from here to there*,
+resolved per axis against ninety-one footprints in a coarse grid, so walking
+into a shopfront at an angle carries you along it instead of stopping you dead.
 
-To add a new one, write a builder in `src/world/props.ts` (a function returning
-a `THREE.Group` whose origin sits on the ground) and give it a marker height in
-`src/game/placesBuilder.ts`. Children named `cloth`, `flame` or `hands` get
-free idle animation.
+**The mouse is the camera.** The island's camera drifted, sat far back and eased
+around behind you on its own. At street level that is disorienting: with the
+pointer locked, aiming is absolute and the rig never swings by itself. Drag and
+touch keep the old auto-follow, because there is no other way to steer with a
+thumb.
 
-## Layout
+**The wall wins.** `game/cameraRig.ts` traces the boom against the building
+boxes every frame and shortens it, and when shortening is not enough — stand
+with your back to a shop and there is no distance behind you that is not inside
+it — it searches a small ladder of (distance, pitch) pairs for a shot in open
+air, preferring to stay far, then to stay level. The last rung is a tight
+look-down over the character's shoulder, which always exists. Being inside a
+wall for even one frame shows the player the inside of a building, and that is
+the one thing not to allow.
 
-```
-src/
-  core/        engine (renderer + loop), post-processing grade, input, noise
-  world/       ramp materials, terrain + roads, sky/sea/light, props,
-               scenery scatter, birds
-  game/        player controller, camera rig, content → scene instantiation
-  learn/       progress (localStorage), speech synthesis
-  ui/          markers, lesson card, quiz, HUD — plain DOM, no framework
-  content/     places.ts + types.ts  ← the game is authored here
-```
+## Finding places
 
-A few things worth knowing:
+There are no markers floating over the city. The shops have their names painted
+on them, so walking up to a door *is* the interaction: stand in front of one and
+press `E`, and a card tells you what the place is and which street it is on, and
+reads the sentence aloud with your device voice. All 94 places (91 buildings and
+3 parks) are worth finding, and the count is saved in your browser.
 
-- `world/terrain.ts` exports `heightAt(x, z)`, and it is the single source of
-  truth. The mesh, the player, the props and the camera all read from it, so
-  nothing ever floats or sinks.
-- Markers are DOM elements projected from 3D anchors each frame, not sprites —
-  the text stays crisp and screen readers can reach it.
-- `window.__world` is exposed for authoring: `__world.goTo("market")` teleports,
-  `__world.progress.reset()` clears saved words.
+Pronunciation uses the browser's built-in speech synthesis. There are no audio
+files.
 
-## Ideas this is built to absorb
+## Licence
 
-The scaffolding deliberately leaves room for the obvious next steps: NPCs with
-dialogue trees, listening exercises ("walk to the thing I say"), spaced
-repetition on top of `Progress`, per-place grammar drills, and a day/night cycle
-driving vocabulary about time. None of those need engine changes beyond a new
-module plus content.
+The 3D models under `public/models/` are by [Kenney](https://kenney.nl) and
+[Quaternius](https://www.patreon.com/quaternius) (the character, via the three.js
+examples) and are **CC0 1.0** — public domain, attribution not required, though
+both deserve it. Each kit folder keeps the `LICENSE.txt` it shipped with.

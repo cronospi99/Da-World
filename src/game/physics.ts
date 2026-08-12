@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { WATER_LEVEL, WORLD_SIZE, heightAt } from "../world/terrain";
+import { blocked, groundHeight, resolveMove } from "../city/ground";
 
 /**
  * Character physics, ported from the reference world's `collisionPhysics`.
@@ -19,8 +19,11 @@ import { WATER_LEVEL, WORLD_SIZE, heightAt } from "../world/terrain";
  *    verbatim. Our island is roughly 2.5x the scale of theirs, so the two
  *    forces are scaled to match; see SCALE below.
  *
- * The original also raycasts a `collider.bin` mesh to find the floor. We do not
- * need it: `heightAt(x, z)` is analytic, so the ground query is exact and free.
+ * The original raycasts a `collider.bin` mesh to find the floor, and the island
+ * this file was written for used an analytic heightfield. The city needs
+ * neither: the ground is flat apart from the kerbs, and the walls are ninety-one
+ * axis-aligned footprints. Both live in `city/ground.ts`, so everything below is
+ * still purely simulation and knows nothing about tiles or buildings.
  */
 
 /** Our world units per reference world unit. */
@@ -57,19 +60,6 @@ const COYOTE_TIME = 0.1;
 /** A jump pressed this long before landing still fires on touchdown. */
 const JUMP_BUFFER = 0.15;
 
-/** Terrain steeper than this (normal.y) is treated as a wall, not a floor. */
-const FLOOR_INCLINATION = 0.55;
-
-const _normal = new THREE.Vector3();
-
-/** Terrain normal at a point, from finite differences of `heightAt`. */
-export function groundNormal(x: number, z: number, out = _normal): THREE.Vector3 {
-  const e = 0.6;
-  const dx = (heightAt(x + e, z) - heightAt(x - e, z)) / (2 * e);
-  const dz = (heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
-  return out.set(-dx, 1, -dz).normalize();
-}
-
 export type MotionState = "idle" | "run" | "air";
 
 /**
@@ -90,13 +80,17 @@ export class CharacterBody {
   /** True for the single frame the character leaves the ground by jumping. */
   justJumped = false;
 
+  /** 1 = walking, >1 = sprinting. Set from the input every frame. */
+  boost = 1;
+
   private accumulator = 0;
   private coyote = 0;
   private jumpBuffer = 0;
   private readonly desired = new THREE.Vector2();
+  private readonly move = { x: 0, z: 0, hitX: false, hitZ: false };
 
   constructor(start: THREE.Vector2) {
-    this.position.set(start.x, heightAt(start.x, start.y), start.y);
+    this.position.set(start.x, groundHeight(start.x, start.y), start.y);
   }
 
   /** Horizontal speed in world units per second. */
@@ -133,12 +127,10 @@ export class CharacterBody {
     const { positionForce, damp, gravity, jumpForce } = PHYSICS;
 
     // --- horizontal -------------------------------------------------------
-    // Steep ground is hard to walk up, but never impossible — a hard block
-    // here is how characters get wedged into hillsides.
-    const normal = groundNormal(this.position.x, this.position.z);
-    const traction = this.grounded
-      ? THREE.MathUtils.clamp((normal.y - FLOOR_INCLINATION) / (0.95 - FLOOR_INCLINATION), 0.18, 1)
-      : 0.45; // less control in the air
+    // Pavement everywhere, so the only thing that takes control away is being
+    // in the air. Sprinting raises the acceleration, not the damping, so the
+    // top speed rises with it and the character still stops on a sixpence.
+    const traction = this.grounded ? this.boost : 0.45;
 
     this.velocity.x += this.desired.x * positionForce * traction;
     this.velocity.z += this.desired.y * positionForce * traction;
@@ -159,31 +151,26 @@ export class CharacterBody {
     // --- vertical ---------------------------------------------------------
     this.velocity.y += gravity;
 
-    let nextX = this.position.x + this.velocity.x;
-    let nextZ = this.position.z + this.velocity.z;
     const nextY = this.position.y + this.velocity.y;
 
     // --- horizontal collision --------------------------------------------
-    const limit = WORLD_SIZE * 0.46;
-    nextX = THREE.MathUtils.clamp(nextX, -limit, limit);
-    nextZ = THREE.MathUtils.clamp(nextZ, -limit, limit);
-
-    // The shoreline is the only wall in the world. Slide along it rather than
-    // stopping dead, so walking into the beach at an angle still moves you.
-    if (heightAt(nextX, this.position.z) < WATER_LEVEL + 0.35) {
-      nextX = this.position.x;
-      this.velocity.x = 0;
-    }
-    if (heightAt(this.position.x, nextZ) < WATER_LEVEL + 0.35) {
-      nextZ = this.position.z;
-      this.velocity.z = 0;
-    }
-
-    this.position.x = nextX;
-    this.position.z = nextZ;
+    // Walls slide rather than stop: walking into a shopfront at an angle still
+    // carries you along the street, which is the difference between a city you
+    // can move through and one you keep getting stuck on.
+    resolveMove(
+      this.position.x,
+      this.position.z,
+      this.position.x + this.velocity.x,
+      this.position.z + this.velocity.z,
+      this.move,
+    );
+    if (this.move.hitX) this.velocity.x = 0;
+    if (this.move.hitZ) this.velocity.z = 0;
+    this.position.x = this.move.x;
+    this.position.z = this.move.z;
 
     // --- ground -----------------------------------------------------------
-    const groundY = heightAt(nextX, nextZ);
+    const groundY = groundHeight(this.position.x, this.position.z);
     if (nextY <= groundY) {
       if (!this.grounded) this.justLanded = true;
       this.position.y = groundY;
@@ -211,9 +198,17 @@ export class CharacterBody {
     }
   }
 
-  /** Drop the character onto the terrain at a point (used by the debug hooks). */
+  /** Drop the character onto the street at a point (used by the debug hooks). */
   teleport(x: number, z: number): void {
-    this.position.set(x, heightAt(x, z), z);
+    // Never land inside a wall, however careless the caller was.
+    let px = x;
+    let pz = z;
+    for (let r = 0; blocked(px, pz) && r < 24; r++) {
+      const a = r * 2.4;
+      px = x + Math.cos(a) * (1 + r * 0.5);
+      pz = z + Math.sin(a) * (1 + r * 0.5);
+    }
+    this.position.set(px, groundHeight(px, pz), pz);
     this.velocity.set(0, 0, 0);
     this.grounded = true;
     this.accumulator = 0;
