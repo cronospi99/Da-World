@@ -260,37 +260,3 @@ export function zoneSignTexture(name: string, emoji: string): CanvasTexture {
 
   return finish(cv);
 }
-
-/* ------------------------------------------------------------------ *
- * Floating name plate                                                 *
- * ------------------------------------------------------------------ */
-
-/** The label that floats over the nearest places. */
-export function labelTexture(text: string): CanvasTexture {
-  const W = 640;
-  const H = 176;
-  const [cv, c] = ctx2d(W, H);
-  roundRect(c, 10, 10, W - 20, 116, 30);
-  c.fillStyle = 'rgba(26,16,63,.9)';
-  c.fill();
-  c.strokeStyle = '#ffd447';
-  c.lineWidth = 6;
-  c.stroke();
-
-  // A little tail, so the plate reads as a pin planted on the roof.
-  c.beginPath();
-  c.moveTo(W / 2 - 16, 124);
-  c.lineTo(W / 2 + 16, 124);
-  c.lineTo(W / 2, 156);
-  c.closePath();
-  c.fillStyle = 'rgba(26,16,63,.9)';
-  c.fill();
-
-  c.textAlign = 'center';
-  c.textBaseline = 'middle';
-  const size = fitFont(c, text, W - 60, 54);
-  c.fillStyle = '#ffffff';
-  c.font = `900 ${size}px Nunito, Arial, sans-serif`;
-  c.fillText(text, W / 2, 68);
-  return finish(cv);
-}

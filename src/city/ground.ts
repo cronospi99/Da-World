@@ -1,7 +1,16 @@
 import * as THREE from "three";
 import { BUILDINGS } from "./buildings";
-import { CURB } from "./city";
-import { GH, GW, ROAD_OVERRUN, isRoad } from "./layout";
+import { CURB, TREE_SPOTS } from "./city";
+import {
+  CROSSING_REACH,
+  GH,
+  GW,
+  INTERSECTIONS,
+  ROAD_OVERRUN,
+  inZone,
+  isRoad,
+  isSidewalk,
+} from "./layout";
 
 /**
  * The city as something you can stand on and bump into.
@@ -9,9 +18,10 @@ import { GH, GW, ROAD_OVERRUN, isRoad } from "./layout";
  * The island this world used to be was a heightfield, so the floor was one
  * analytic function and the only wall was the shoreline. A city is the other
  * way round: the floor is flat and almost all of the interest is in the walls.
- * So this module answers two questions for the character controller —
+ * So this module answers three questions for the character controller —
  *
  *   how high is the ground here?      (road, or a kerb's height of pavement)
+ *   may a pedestrian stand here?      (pavement, crossing or park, and nothing else)
  *   may I move from here to there?    (not through a building, you may not)
  *
  * — and nothing else knows the city is made of tiles.
@@ -27,8 +37,14 @@ export const CITY_BOUNDS = {
   maxZ: GH + MARGIN,
 };
 
-/** Half-width of the character, for the purposes of not clipping a wall. */
-export const BODY_RADIUS = 0.42;
+/**
+ * Half-width of a person, for the purposes of not clipping a wall.
+ *
+ * Sized to the character rather than to the tile: at 1.2 units tall a citizen
+ * is about half a tile across the shoulders, and a radius any larger used to
+ * hold the camera a suspicious distance off every shopfront.
+ */
+export const BODY_RADIUS = 0.28;
 
 /**
  * Ground height at a point.
@@ -53,6 +69,47 @@ export function groundHeight(x: number, z: number): number {
   if (nearest >= 0.5) return 0;
   const t = 1 - nearest / 0.5;
   return CURB * t * t * (3 - 2 * t);
+}
+
+/* ------------------------------------------------------------------ *
+ * Pedestrian rules                                                    *
+ * ------------------------------------------------------------------ */
+
+/** How close to the edge of the map a pedestrian may get, in tiles. */
+const EDGE = 0.14;
+/** Clearance kept between a body and a shopfront. */
+const SHOP_PAD = 0.12;
+
+/**
+ * May a pedestrian stand at this tile-space point?
+ *
+ * Pavements, zebra crossings and the parks — and nothing else. It is a
+ * language rule as much as a road-safety one: if you can cut diagonally across
+ * a block, then "go straight for two blocks and turn left" stops being the
+ * only way to get anywhere, and the directions a citizen gives you stop
+ * meaning anything. It is also what keeps the carriageway to the traffic,
+ * which is the difference between a city and a car park.
+ *
+ * The test is a point test rather than a circle: the pavement is one tile
+ * wide, and a body radius taken off both sides of it would leave a corridor
+ * too mean to walk down.
+ */
+export function walkable(x: number, z: number): boolean {
+  if (x < EDGE || z < EDGE || x > GW - EDGE || z > GH - EDGE) return false;
+  if (blocked(x, z, SHOP_PAD)) return false;
+  // Parks and squares are open ground: roam them freely.
+  if (inZone(x, z)) return true;
+
+  const tx = Math.floor(x);
+  const tz = Math.floor(z);
+  if (isSidewalk(tx, tz)) return true;
+  if (isRoad(tx, tz)) {
+    // On the carriageway only where the zebra stripes are: at a junction.
+    for (const it of INTERSECTIONS) {
+      if (Math.abs(x - it.cx) < CROSSING_REACH && Math.abs(z - it.cy) < CROSSING_REACH) return true;
+    }
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ *
@@ -105,6 +162,76 @@ for (const b of BUILDINGS) {
 const EMPTY: Box[] = [];
 const boxesNear = (x: number, z: number): Box[] =>
   grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? EMPTY;
+
+/* ------------------------------------------------------------------ *
+ * Foliage                                                             *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Tree canopies, bucketed the same way, for the camera and nothing else.
+ *
+ * A person walks under a tree, so the character controller does not care about
+ * them. The camera does: park a lens inside a canopy and the whole screen goes
+ * green, which used to happen every time you stood at the edge of a park. So a
+ * tree is a cylinder here — trunk to crown — and the camera refuses to *rest*
+ * inside one. The boom is still allowed to pass through foliage on its way
+ * out, because a branch crossing the shot for a moment is what a camera in a
+ * park looks like, and shortening the boom for every leaf left it juddering
+ * the length of a tree-lined avenue — a street tree every few metres is most
+ * of what a kerb in this city has on it.
+ */
+interface Canopy {
+  x: number;
+  z: number;
+  r: number;
+  top: number;
+}
+
+const canopyGrid = new Map<number, Canopy[]>();
+
+for (const spot of TREE_SPOTS) {
+  // The trees are drawn at 2.7x their spot scale. The radius kept here is the
+  // dense middle of the crown rather than its full spread: in a park the
+  // canopies overlap, and a camera that demanded clear air of all of them
+  // would have nowhere to stand under a wood at all.
+  const canopy: Canopy = {
+    x: spot.x,
+    z: spot.z,
+    r: spot.s * 0.7,
+    top: CURB + spot.s * 3.1,
+  };
+  const cx = Math.floor(canopy.x / CELL);
+  const cz = Math.floor(canopy.z / CELL);
+  for (let ix = cx - 1; ix <= cx + 1; ix++) {
+    for (let iz = cz - 1; iz <= cz + 1; iz++) {
+      const k = key(ix, iz);
+      let list = canopyGrid.get(k);
+      if (!list) canopyGrid.set(k, (list = []));
+      list.push(canopy);
+    }
+  }
+}
+
+/**
+ * Is a point inside a tree?
+ *
+ * Only the camera asks, and only about where its lens may come to rest: a
+ * person walks under a tree, and a boom that pulled in for every branch spent
+ * a walk down a tree-lined street snapping in and out.
+ */
+export function inFoliage(x: number, y: number, z: number, radius = 0.3): boolean {
+  if (y > CURB + 6 || y < CURB + 0.5) return false;
+  const list = canopyGrid.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+  if (!list) return false;
+  for (const c of list) {
+    if (y > c.top) continue;
+    const dx = x - c.x;
+    const dz = z - c.z;
+    const reach = c.r + radius;
+    if (dx * dx + dz * dz < reach * reach) return true;
+  }
+  return false;
+}
 
 /**
  * Is a body of `radius` at (x, y, z) inside a building?
@@ -167,8 +294,10 @@ export function lineBlocked(
  * Slide a move along whatever it runs into.
  *
  * Each axis is resolved on its own, which is the cheapest way to get the
- * behaviour a player expects from a wall: walking into a shopfront at an angle
- * still carries you along it instead of stopping you dead.
+ * behaviour a player expects from a kerb or a shopfront: walking into one at
+ * an angle still carries you along the street instead of stopping you dead.
+ * That matters more here than in an open world, because a pavement is a
+ * corridor and every walk down one is a walk along a wall.
  */
 export function resolveMove(
   fromX: number,
@@ -182,19 +311,41 @@ export function resolveMove(
   out.hitX = x !== toX;
   out.hitZ = z !== toZ;
 
-  if (blocked(x, fromZ)) {
+  if (!walkable(x, fromZ)) {
     x = fromX;
     out.hitX = true;
   }
-  if (blocked(x, z)) {
+  if (!walkable(x, z)) {
     z = fromZ;
     out.hitZ = true;
   }
   // A corner can still trap us if both axes were legal alone but not together.
-  if (blocked(x, z)) {
+  if (!walkable(x, z)) {
     x = fromX;
+    z = fromZ;
     out.hitX = true;
+    out.hitZ = true;
   }
   out.x = x;
   out.z = z;
+}
+
+/**
+ * The nearest legal standing place to a point, searched outwards.
+ *
+ * Used when something drops a character into the city from outside the
+ * simulation — a teleport, a fresh save, the debug console — so nobody ever
+ * lands inside a wall or in the middle of the carriageway.
+ */
+export function nearestWalkable(x: number, z: number, radius = 8): { x: number; z: number } {
+  if (walkable(x, z)) return { x, z };
+  for (let r = 0.5; r <= radius; r += 0.5) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const px = x + Math.cos(a) * r;
+      const pz = z + Math.sin(a) * r;
+      if (walkable(px, pz)) return { x: px, z: pz };
+    }
+  }
+  return { x, z };
 }

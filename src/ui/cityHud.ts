@@ -1,14 +1,18 @@
-import type { Discovery, Explorer } from "../city/discovery";
+import { MISSIONS } from "../game/missions";
+import type { Npc } from "../game/quests";
+import { TOTAL_PLACES, XP_PER_LEVEL, type GameState } from "../game/state";
 import type { Speech } from "../learn/speech";
-import { closeButton, el, speakerButton } from "./dom";
+import { closeButton, el } from "./dom";
 
 /**
- * On-screen furniture for a city you walk around.
+ * On-screen furniture for a city you walk around with a job to do.
  *
- * Four things, and nothing else: where you are, what time it is, how much of
- * the city you have found, and what the button under your finger would do. The
- * card that opens when you find somewhere new is the only thing that ever
- * covers the view, and it closes itself out of your way.
+ * Five things, and nothing else: where you are, what time it is, what you are
+ * meant to be doing next, how far along you are, and what the button under
+ * your finger would do. The one thing that is deliberately *not* here is the
+ * name of the place you happen to be standing in front of — the shops have
+ * their names painted on them, and a card that jumps up every time you walk
+ * past a door turns a walk down a street into a clicking exercise.
  */
 
 interface HudOptions {
@@ -19,33 +23,34 @@ interface HudOptions {
 export class CityHud {
   private readonly streetName: HTMLElement;
   private readonly clock: HTMLElement;
+  private readonly missionLine: HTMLElement;
   private readonly barFill: HTMLElement;
   private readonly barLabel: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly toast: HTMLElement;
-  private readonly card: HTMLElement;
-  private readonly cardBody: HTMLElement;
   private readonly info: HTMLElement;
+  private readonly missions: HTMLElement;
+  private readonly missionList: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
 
   private toastTimer = 0;
-  private cardTimer = 0;
-  private openPlace: Discovery | null = null;
 
   constructor(
     parent: HTMLElement,
     private readonly speech: Speech,
-    private readonly explorer: Explorer,
+    private readonly state: GameState,
     private readonly options: HudOptions,
   ) {
     this.streetName = el("h1", { class: "hud-place-name", text: "…" });
     this.clock = el("div", { class: "hud-place-sub", text: "" });
+    this.missionLine = el("div", { class: "hud-mission" });
     this.barFill = el("div", { class: "hud-bar-fill" });
     this.barLabel = el("div", { class: "hud-bar-label" });
 
     const corner = el("div", { class: "hud-corner hud-top-left" }, [
       this.streetName,
       this.clock,
+      this.missionLine,
       el("div", { class: "hud-bar" }, [this.barFill]),
       this.barLabel,
     ]);
@@ -61,6 +66,14 @@ export class CityHud {
       this.soundButton.textContent = muted ? "🔇" : "🔊";
     });
 
+    const missionButton = el("button", {
+      class: "tile-button",
+      type: "button",
+      "aria-label": "Missions",
+      text: "🎯",
+    });
+    missionButton.addEventListener("click", () => this.toggleMissions(true));
+
     const infoButton = el("button", {
       class: "tile-button",
       type: "button",
@@ -71,42 +84,31 @@ export class CityHud {
 
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
       this.soundButton,
+      missionButton,
       infoButton,
     ]);
 
     this.hint = el("div", { class: "hud-hint" });
     this.toast = el("div", { class: "hud-toast" });
 
-    // --- the place card ---------------------------------------------------
-    this.cardBody = el("article", { class: "card-body" });
-    this.card = el("div", { class: "overlay", "aria-hidden": "true" }, [
-      el("div", { class: "overlay-scrim" }),
-      el("div", { class: "card" }, [
-        el("div", { class: "card-shadow" }),
-        el("div", { class: "card-face" }),
-        this.cardBody,
-        closeButton(() => this.closeCard(), "Close"),
-      ]),
-    ]);
-    this.card.querySelector(".overlay-scrim")!.addEventListener("click", () => this.closeCard());
-
+    this.missionList = el("ul", { class: "mission-list" });
+    this.missions = this.buildMissions();
     this.info = this.buildInfo();
-    parent.append(corner, buttons, this.hint, this.toast, this.card, this.info);
 
-    this.explorer.subscribe(() => this.refreshProgress());
-    this.refreshProgress();
-  }
-
-  get isCardOpen(): boolean {
-    return this.card.classList.contains("is-open");
+    parent.append(corner, buttons, this.hint, this.toast, this.missions, this.info);
+    this.refresh();
   }
 
   get isInfoOpen(): boolean {
     return this.info.classList.contains("is-open");
   }
 
+  get isMissionsOpen(): boolean {
+    return this.missions.classList.contains("is-open");
+  }
+
   get isBlocking(): boolean {
-    return this.isCardOpen || this.isInfoOpen;
+    return this.isInfoOpen || this.isMissionsOpen;
   }
 
   setStreet(name: string): void {
@@ -117,52 +119,48 @@ export class CityHud {
     if (this.clock.textContent !== text) this.clock.textContent = text;
   }
 
-  setHint(text: string | null): void {
-    this.hint.textContent = text ?? "";
-    this.hint.classList.toggle("is-visible", !!text);
+  /** The prompt at the bottom of the screen: who you could talk to, and how. */
+  setTalkHint(npc: Npc | null): void {
+    const text = npc ? `${npc.face}  Press E — talk to ${npc.name}, ${npc.role.toLowerCase()}` : "";
+    if (this.hint.textContent !== text) this.hint.textContent = text;
+    this.hint.classList.toggle("is-visible", !!npc);
   }
 
-  /** Open the card for a place, and read its sentence aloud. */
-  showPlace(place: Discovery, isNew: boolean): void {
-    this.openPlace = place;
-    this.cardBody.replaceChildren(
-      el("div", { class: "lesson-emoji", text: place.emoji }),
-      el("h2", { class: "lesson-term", text: place.name }),
-      el("p", { class: "lesson-gloss", text: place.sentence }),
-      el("p", {
-        class: "lesson-place",
-        text: isNew ? "New place found!" : `On ${place.street}`,
-      }),
-      el("div", { class: "lesson-actions" }, [
-        speakerButton(() => this.speech.speak(place.sentence), "Listen"),
-      ]),
+  showToast(emoji: string, title: string, sub: string): void {
+    this.toast.replaceChildren(
+      el("strong", { text: `${emoji}  ${title}` }),
+      el("span", { text: sub }),
     );
-    this.setOverlay(this.card, true);
-    this.speech.speak(place.sentence);
-    // The card is information, not a modal dialogue: it gets out of the way on
-    // its own so walking down a busy street never becomes a clicking exercise.
-    this.cardTimer = 6;
-  }
-
-  closeCard(): void {
-    this.setOverlay(this.card, false);
-    this.openPlace = null;
-    this.cardTimer = 0;
-  }
-
-  /** The place the open card is describing, if any. */
-  get shownPlace(): Discovery | null {
-    return this.openPlace;
-  }
-
-  showToast(title: string, sub: string): void {
-    this.toast.replaceChildren(el("strong", { text: title }), el("span", { text: sub }));
     this.toast.classList.add("is-visible");
-    this.toastTimer = 3.4;
+    this.toastTimer = 3.6;
+  }
+
+  /** Take the toast off the screen at once, so a card never opens on top of it. */
+  clearToast(): void {
+    this.toast.classList.remove("is-visible");
+    this.toastTimer = 0;
   }
 
   toggleInfo(open: boolean): void {
     this.setOverlay(this.info, open);
+  }
+
+  toggleMissions(open: boolean): void {
+    if (open) this.renderMissions();
+    this.setOverlay(this.missions, open);
+  }
+
+  /** Shut whichever panel is on top. Returns false if there was nothing to shut. */
+  closeTop(): boolean {
+    if (this.isMissionsOpen) {
+      this.toggleMissions(false);
+      return true;
+    }
+    if (this.isInfoOpen) {
+      this.toggleInfo(false);
+      return true;
+    }
+    return false;
   }
 
   update(dt: number): void {
@@ -170,10 +168,20 @@ export class CityHud {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) this.toast.classList.remove("is-visible");
     }
-    if (this.cardTimer > 0) {
-      this.cardTimer -= dt;
-      if (this.cardTimer <= 0) this.closeCard();
-    }
+  }
+
+  /** Re-read the game state. Cheap enough to call whenever it changes. */
+  refresh(): void {
+    const state = this.state;
+    const next = MISSIONS.find((m) => !state.missionsDone.has(m.id));
+    this.missionLine.textContent = next
+      ? `${next.icon}  ${next.label}  (${Math.min(next.get(state), next.goal)}/${next.goal})`
+      : "🏆  Every mission complete!";
+
+    const intoLevel = (state.score % XP_PER_LEVEL) / XP_PER_LEVEL;
+    this.barFill.style.transform = `scaleX(${intoLevel})`;
+    this.barLabel.textContent = `Level ${state.level}  ·  ${state.score} XP  ·  ${state.helped.size} citizens helped  ·  ${state.found.size}/${TOTAL_PLACES} places`;
+    if (this.isMissionsOpen) this.renderMissions();
   }
 
   private setOverlay(node: HTMLElement, open: boolean): void {
@@ -182,23 +190,50 @@ export class CityHud {
     this.options.onPause(this.isBlocking);
   }
 
-  private refreshProgress(): void {
-    const found = this.explorer.found.size;
-    const total = this.explorer.total;
-    this.barFill.style.width = `${Math.round((found / total) * 100)}%`;
-    this.barLabel.textContent = `${found} of ${total} places found`;
+  private renderMissions(): void {
+    const state = this.state;
+    this.missionList.replaceChildren(
+      ...MISSIONS.map((mission) => {
+        const done = state.missionsDone.has(mission.id);
+        const progress = Math.min(mission.get(state), mission.goal);
+        return el("li", { class: done ? "mission is-done" : "mission" }, [
+          el("span", { class: "mission-icon", text: done ? "✅" : mission.icon }),
+          el("span", { class: "mission-label", text: mission.label }),
+          el("span", { class: "mission-count", text: `${progress}/${mission.goal}` }),
+        ]);
+      }),
+    );
+  }
+
+  private buildMissions(): HTMLElement {
+    const done = MISSIONS.length;
+    const panel = el("div", { class: "overlay info-overlay", "aria-hidden": "true" }, [
+      el("div", { class: "overlay-scrim" }),
+      el("div", { class: "card info-card" }, [
+        el("div", { class: "card-shadow" }),
+        el("div", { class: "card-face" }),
+        el("article", { class: "card-body" }, [
+          el("h2", { class: "info-title", text: "Missions" }),
+          el("p", {
+            class: "info-lead",
+            text: `${done} things to do in this city. Talk to the citizens: every correct answer is XP, and XP is the only thing that raises your level.`,
+          }),
+          this.missionList,
+        ]),
+        closeButton(() => this.toggleMissions(false), "Close"),
+      ]),
+    ]);
+    panel.querySelector(".overlay-scrim")!.addEventListener("click", () => this.toggleMissions(false));
+    return panel;
   }
 
   private buildInfo(): HTMLElement {
     const reset = el("button", {
       class: "pill-button ghost",
       type: "button",
-      text: "Forget everything I found",
+      text: "Start the city again",
     });
-    reset.addEventListener("click", () => {
-      this.options.onReset();
-      this.refreshProgress();
-    });
+    reset.addEventListener("click", () => this.options.onReset());
 
     const info = el("div", { class: "overlay info-overlay", "aria-hidden": "true" }, [
       el("div", { class: "overlay-scrim" }),
@@ -209,20 +244,22 @@ export class CityHud {
           el("h2", { class: "info-title", text: "Da World" }),
           el("p", {
             class: "info-lead",
-            text: "A whole city, on foot. Walk up to any shop, park or landmark and it will tell you what it is and which street it is on.",
+            text: "A whole city, on foot. The people on the pavement are lost, looking for somewhere, or practising their English — walk up to a ❓ and help them.",
           }),
           el("ul", { class: "info-list" }, [
             el("li", { text: "Move — WASD / arrow keys, or the left half of a touch screen." }),
             el("li", { text: "Sprint — hold Shift." }),
             el("li", { text: "Jump — space, or a quick tap on the right half." }),
-            el("li", { text: "Look — click once to take the mouse, then move it. Esc gives it back." }),
+            el("li", {
+              text: "Look — click once to take the mouse, then move it. Esc gives it back.",
+            }),
             el("li", { text: "Zoom — scroll, or pinch." }),
-            el("li", { text: "Look at a place — walk to its door and press E." }),
+            el("li", { text: "Talk to somebody — walk up to them and press E." }),
             el("li", { text: "Re-centre the camera — press R." }),
           ]),
           el("p", {
             class: "info-note",
-            text: "Cars stop at red lights and the sun really does go down. Pronunciation uses your device voice; what you have found is saved in this browser.",
+            text: "Stay on the pavement and cross at the crossings — that is the whole point of the directions people give you. A wrong answer costs nothing: the option locks and you try again. Cars stop at red lights and the sun really does go down. Pronunciation uses your device voice; your progress is saved in this browser.",
           }),
           el("div", { class: "lesson-actions" }, [reset]),
         ]),

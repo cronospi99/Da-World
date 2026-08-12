@@ -21,12 +21,16 @@ const MODEL_URL = `${import.meta.env.BASE_URL}models/character.glb`;
 /**
  * The character is scaled so it stands this tall in world units.
  *
- * One tile of the city is about a metre and a half — a shop is two tiles wide
- * and its ground floor is 2.3 tall — so a person is a shade over one. Getting
- * this wrong is the fastest way to make a city look like a toy: at the island's
- * old 2.3 the character was taller than a shopfront.
+ * One tile of the city is about a metre and a half. A shop's ground floor is
+ * 2.3 tall and its door is a shade under two, so a person has to be around
+ * 1.2 for a doorway to look like something you walk through rather than duck
+ * under. This is the single number that decides whether the city reads as a
+ * city or as a model village with a giant in it: at 1.75 the character stood
+ * head and shoulders over every shopfront on Main Street.
+ *
+ * The citizens are scaled to match — see `CITIZEN_SCALE` in `city/npcs.ts`.
  */
-const TARGET_HEIGHT = 1.75;
+export const TARGET_HEIGHT = 1.2;
 
 /**
  * Rotate the model if its bind pose does not face +Z. The bundled robot
@@ -44,11 +48,16 @@ const CLIPS = {
   bored: "Wave",
 } as const;
 
-/** Above this speed (units/s) the walk blends into the run. */
-const RUN_THRESHOLD = 4.5;
-/** Speed the run clip was authored at, used to keep the feet roughly planted. */
-const RUN_REFERENCE_SPEED = 7.5;
-const WALK_REFERENCE_SPEED = 3.2;
+/**
+ * Above this speed (units/s) the walk blends into the run.
+ *
+ * The reference speeds below are the ones the clips were authored at, scaled
+ * to the character's height: a stride is a fraction of a leg, so a shorter
+ * character has to take more of them per metre or the feet skate.
+ */
+const RUN_THRESHOLD = 3.1;
+const RUN_REFERENCE_SPEED = 5.1;
+const WALK_REFERENCE_SPEED = 2.2;
 
 const FADE = 0.22;
 
