@@ -19,6 +19,8 @@ import { closeButton, el } from "./dom";
 interface HudOptions {
   onReset: () => void;
   onPause: (paused: boolean) => void;
+  /** Reopen the class panel — the code, the QR and who is in. */
+  onRoom: () => void;
 }
 
 export class CityHud {
@@ -34,6 +36,7 @@ export class CityHud {
   private readonly missionList: HTMLElement;
   private missionLead!: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
+  private readonly roomButton: HTMLButtonElement;
 
   private toastTimer = 0;
 
@@ -90,7 +93,18 @@ export class CityHud {
     });
     infoButton.addEventListener("click", () => this.toggleInfo(true));
 
+    // Hidden until there is a room to show. A host walks off to help somebody
+    // and needs the code back on screen; a student wants to know who is in.
+    this.roomButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "The class",
+      text: "👥",
+    });
+    this.roomButton.addEventListener("click", () => this.options.onRoom());
+
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
+      this.roomButton,
       this.soundButton,
       missionButton,
       infoButton,
@@ -117,6 +131,18 @@ export class CityHud {
 
   get isBlocking(): boolean {
     return this.isInfoOpen || this.isMissionsOpen;
+  }
+
+  /**
+   * The room this city is part of, or null when it is only yours.
+   *
+   * The label is the room's code and how full it is, which is the one thing a
+   * host is asked over and over while a class files in.
+   */
+  setRoom(label: string | null): void {
+    this.roomButton.classList.toggle("is-gone", label === null);
+    this.roomButton.setAttribute("aria-label", label ? `The class — ${label}` : "The class");
+    this.roomButton.title = label ?? "";
   }
 
   /** The mode being played, shown on the mission panel. */

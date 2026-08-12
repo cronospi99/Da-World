@@ -112,7 +112,7 @@ export class Menu {
         mode.covers.map((line) => el("li", { text: line })),
       ),
       mode.networked
-        ? el("div", { class: "mode-note", text: "Needs a class server — see Teacher." })
+        ? el("div", { class: "mode-note", text: "One browser hosts it. Everybody else scans the code." })
         : null,
     ]);
     card.addEventListener("click", () => this.select(mode));

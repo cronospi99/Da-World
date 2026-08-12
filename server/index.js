@@ -33,7 +33,9 @@ import { WebSocketServer } from "ws";
 const PORT = Number(process.env.PORT ?? 8787);
 const TEACHER_PASSPHRASE = process.env.DA_WORLD_TEACHER_PASSPHRASE ?? "teacher";
 const PROTOCOL = 1;
-const MAX_STUDENTS = 12;
+/** Everybody in one city at once, the teacher included. Keep in step with
+ *  MAX_PLAYERS in src/net/protocol.ts. */
+const MAX_PLAYERS = 12;
 /** How often everybody's position goes out, in milliseconds. */
 const TICK_MS = 100;
 
@@ -133,11 +135,13 @@ wss.on("connection", (socket) => {
         socket.close();
         return;
       }
-      const students = [...target.peers.values()].filter((p) => p.role === "student").length;
-      if (!isTeacher && students >= MAX_STUDENTS) {
+      // The teacher counts towards the room: twelve people in one city is the
+      // limit whichever of them is holding it open, so that a class told they
+      // can have twelve gets twelve here and in QR mode alike.
+      if (target.peers.size >= MAX_PLAYERS) {
         send(socket, {
           t: "denied",
-          reason: `This room is full (${MAX_STUDENTS} students).`,
+          reason: `This room is full (${MAX_PLAYERS} people).`,
         });
         socket.close();
         return;
