@@ -292,8 +292,19 @@ export function refreshGrammarQuest(npc: Npc): void {
   npc.quest = grammarQuest(deal(), npc.id, npc.round);
 }
 
-export function buildNpcs(): Npc[] {
+/**
+ * Build the city's citizens for a mode.
+ *
+ * The `kinds` a mode allows are dealt round-robin rather than taken from the
+ * authored data, so every citizen has something to say in every mode: a
+ * directions lesson needs more than the nine people who were written as lost
+ * tourists, and a vocabulary lesson should not walk past them in silence. Who
+ * somebody is — their name, their job, their line of small talk — is authored
+ * and never changes; what they ask you is the mode's business.
+ */
+export function buildNpcs(kinds: readonly QuestKind[] = ["directions", "find", "grammar"]): Npc[] {
   deal = grammarDealer();
+  const allowed = kinds.length ? kinds : (["find"] as const);
   return NPC_DEFS.map((rawDef, id) => {
     // The citizens are hand-placed, and the pedestrian rules are derived from
     // the street grid, so a citizen is snapped onto legal pavement before
@@ -303,7 +314,12 @@ export function buildNpcs(): Npc[] {
     // a shop with a quest nobody can reach. The quest is generated from the
     // snapped position, so what they say stays true of where they are.
     const spot = nearestWalkable(rawDef.x, rawDef.y);
-    const def: NpcDef = { ...rawDef, x: spot.x, y: spot.z };
+    // An authored citizen keeps their own kind when the mode allows it, so a
+    // baker still asks about his own street; everybody else is dealt one.
+    const type = allowed.includes(rawDef.type)
+      ? rawDef.type
+      : allowed[id % allowed.length];
+    const def: NpcDef = { ...rawDef, x: spot.x, y: spot.z, type };
 
     const rand = mulberry32(1000 + id * 77);
     if (def.type === "grammar") {

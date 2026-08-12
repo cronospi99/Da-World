@@ -1,4 +1,5 @@
-import { MISSIONS } from "../game/missions";
+import { MISSION_GROUPS, type Mission } from "../game/missions";
+import type { GameMode } from "../game/modes";
 import type { Npc } from "../game/quests";
 import { TOTAL_PLACES, XP_PER_LEVEL, type GameState } from "../game/state";
 import type { Speech } from "../learn/speech";
@@ -29,16 +30,23 @@ export class CityHud {
   private readonly hint: HTMLElement;
   private readonly toast: HTMLElement;
   private readonly info: HTMLElement;
-  private readonly missions: HTMLElement;
+  private readonly missionPanel: HTMLElement;
   private readonly missionList: HTMLElement;
+  private missionLead!: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
 
   private toastTimer = 0;
+
+  /** Which section of the mission panel is open, so it survives a refresh. */
+  private readonly openGroups = new Set<string>();
+  private mode: GameMode | null = null;
 
   constructor(
     parent: HTMLElement,
     private readonly speech: Speech,
     private readonly state: GameState,
+    /** The missions of the mode being played — the mode can change. */
+    private readonly missions: () => Mission[],
     private readonly options: HudOptions,
   ) {
     this.streetName = el("h1", { class: "hud-place-name", text: "…" });
@@ -92,10 +100,10 @@ export class CityHud {
     this.toast = el("div", { class: "hud-toast" });
 
     this.missionList = el("ul", { class: "mission-list" });
-    this.missions = this.buildMissions();
+    this.missionPanel = this.buildMissions();
     this.info = this.buildInfo();
 
-    parent.append(corner, buttons, this.hint, this.toast, this.missions, this.info);
+    parent.append(corner, buttons, this.hint, this.toast, this.missionPanel, this.info);
     this.refresh();
   }
 
@@ -104,11 +112,17 @@ export class CityHud {
   }
 
   get isMissionsOpen(): boolean {
-    return this.missions.classList.contains("is-open");
+    return this.missionPanel.classList.contains("is-open");
   }
 
   get isBlocking(): boolean {
     return this.isInfoOpen || this.isMissionsOpen;
+  }
+
+  /** The mode being played, shown on the mission panel. */
+  setMode(mode: GameMode): void {
+    this.mode = mode;
+    this.refresh();
   }
 
   setStreet(name: string): void {
@@ -146,8 +160,15 @@ export class CityHud {
   }
 
   toggleMissions(open: boolean): void {
-    if (open) this.renderMissions();
-    this.setOverlay(this.missions, open);
+    if (open) {
+      const mine = this.missions();
+      const done = mine.filter((m) => this.state.missionsDone.has(m.id)).length;
+      this.missionLead.textContent = this.mode
+        ? `${this.mode.icon} ${this.mode.name} — ${done} of ${mine.length} done. Every correct answer is XP, and XP is the only thing that raises your level.`
+        : "";
+      this.renderMissions();
+    }
+    this.setOverlay(this.missionPanel, open);
   }
 
   /** Shut whichever panel is on top. Returns false if there was nothing to shut. */
@@ -173,7 +194,12 @@ export class CityHud {
   /** Re-read the game state. Cheap enough to call whenever it changes. */
   refresh(): void {
     const state = this.state;
-    const next = MISSIONS.find((m) => !state.missionsDone.has(m.id));
+    // A mission set by the teacher wins over the player's own progress: the
+    // point of it is that the whole room is reading the same line.
+    const next =
+      (state.focusMissionId
+        ? this.missions().find((m) => m.id === state.focusMissionId)
+        : null) ?? this.missions().find((m) => !state.missionsDone.has(m.id));
     this.missionLine.textContent = next
       ? `${next.icon}  ${next.label}  (${Math.min(next.get(state), next.goal)}/${next.goal})`
       : "🏆  Every mission complete!";
@@ -190,23 +216,66 @@ export class CityHud {
     this.options.onPause(this.isBlocking);
   }
 
+  /**
+   * The mission panel, grouped and collapsible.
+   *
+   * Fifteen goals in a flat list is a wall of text; four headings you can open
+   * is a lesson plan. Only the groups this mode is played for are shown — a
+   * directions lesson has not failed to master "some / any".
+   */
   private renderMissions(): void {
     const state = this.state;
-    this.missionList.replaceChildren(
-      ...MISSIONS.map((mission) => {
-        const done = state.missionsDone.has(mission.id);
-        const progress = Math.min(mission.get(state), mission.goal);
-        return el("li", { class: done ? "mission is-done" : "mission" }, [
-          el("span", { class: "mission-icon", text: done ? "✅" : mission.icon }),
-          el("span", { class: "mission-label", text: mission.label }),
-          el("span", { class: "mission-count", text: `${progress}/${mission.goal}` }),
-        ]);
-      }),
-    );
+    const mine = this.missions();
+
+    const sections = MISSION_GROUPS.map((group) => {
+      const items = mine.filter((m) => m.group === group.id);
+      if (!items.length) return null;
+
+      const done = items.filter((m) => state.missionsDone.has(m.id)).length;
+      const open = this.openGroups.has(group.id);
+
+      const toggle = el(
+        "button",
+        { class: "book-toggle", type: "button", "aria-expanded": open ? "true" : "false" },
+        [
+          el("span", { class: "book-caret", text: open ? "▾" : "▸" }),
+          el("span", { class: "book-icon", text: group.icon }),
+          el("span", { class: "book-label", text: group.label }),
+          el("span", { class: "book-count", text: `${done}/${items.length}` }),
+        ],
+      );
+
+      const list = el(
+        "ul",
+        { class: "mission-list" },
+        items.map((mission) => {
+          const isDone = state.missionsDone.has(mission.id);
+          const progress = Math.min(mission.get(state), mission.goal);
+          return el("li", { class: isDone ? "mission is-done" : "mission" }, [
+            el("span", { class: "mission-icon", text: isDone ? "✅" : mission.icon }),
+            el("span", { class: "mission-label", text: mission.label }),
+            el("span", { class: "mission-count", text: `${progress}/${mission.goal}` }),
+          ]);
+        }),
+      );
+
+      const section = el("section", { class: open ? "book-group is-open" : "book-group" }, [
+        toggle,
+        el("div", { class: "book-body" }, [list]),
+      ]);
+      toggle.addEventListener("click", () => {
+        if (this.openGroups.has(group.id)) this.openGroups.delete(group.id);
+        else this.openGroups.add(group.id);
+        this.renderMissions();
+      });
+      return section;
+    }).filter((node): node is HTMLElement => node !== null);
+
+    this.missionList.replaceChildren(...sections);
   }
 
   private buildMissions(): HTMLElement {
-    const done = MISSIONS.length;
+    this.missionLead = el("p", { class: "info-lead" });
     const panel = el("div", { class: "overlay info-overlay", "aria-hidden": "true" }, [
       el("div", { class: "overlay-scrim" }),
       el("div", { class: "card info-card" }, [
@@ -214,10 +283,7 @@ export class CityHud {
         el("div", { class: "card-face" }),
         el("article", { class: "card-body" }, [
           el("h2", { class: "info-title", text: "Missions" }),
-          el("p", {
-            class: "info-lead",
-            text: `${done} things to do in this city. Talk to the citizens: every correct answer is XP, and XP is the only thing that raises your level.`,
-          }),
+          this.missionLead,
           this.missionList,
         ]),
         closeButton(() => this.toggleMissions(false), "Close"),

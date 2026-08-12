@@ -3,6 +3,7 @@ import { Character, PERSON_HEIGHT, PERSON_SCALE } from "./character";
 import { CURB } from "./city";
 import { walkable } from "./ground";
 import { buildNpcs, type Npc } from "../game/quests";
+import type { GameMode } from "../game/modes";
 
 /**
  * The people on the pavement, and the reason to walk up to them.
@@ -85,8 +86,8 @@ export class Npcs {
   readonly npcs: Npc[];
   private readonly views: NpcView[] = [];
 
-  constructor() {
-    this.npcs = buildNpcs();
+  constructor(mode: GameMode) {
+    this.npcs = buildNpcs(mode.kinds);
     for (const npc of this.npcs) {
       const holder = new Group();
       const character = new Character(npc, PERSON_SCALE);

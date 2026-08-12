@@ -34,6 +34,14 @@ export interface GameState {
   playtime: number;
   /** Building highlighted by a hint, if any. */
   hintTargetId: string | null;
+  /**
+   * The mission the teacher has put the room on, if any.
+   *
+   * It overrides the HUD's own "next unfinished mission", so a whole class is
+   * looking at the same line of text however far ahead or behind each student
+   * happens to be.
+   */
+  focusMissionId: string | null;
   /** Time of day, in hours, so a saved city resumes at the same hour. */
   clock: number;
 }
@@ -53,6 +61,7 @@ export function createState(): GameState {
     champion: false,
     playtime: 0,
     hintTargetId: null,
+    focusMissionId: null,
     clock: 9,
   };
 }

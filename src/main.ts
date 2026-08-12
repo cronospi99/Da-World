@@ -3,7 +3,7 @@ import "./styles.css";
 
 import { Engine } from "./core/engine";
 import { Input } from "./core/input";
-import { detectQuality, QUALITY } from "./core/quality";
+import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City } from "./city/city";
 import { BODY_RADIUS } from "./city/ground";
@@ -15,7 +15,8 @@ import { Npcs } from "./city/npcs";
 import { setNightGlow } from "./city/palette";
 import { setTextureAnisotropy } from "./city/textures";
 import { Traffic } from "./city/traffic";
-import { MISSIONS } from "./game/missions";
+import { missionsFor, type Mission } from "./game/missions";
+import { MODES, rememberMode, type GameMode } from "./game/modes";
 import { refreshGrammarQuest, type Npc } from "./game/quests";
 import {
   clearSave,
@@ -31,6 +32,8 @@ import {
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
 import { CityHud } from "./ui/cityHud";
+import { Menu } from "./ui/menu";
+import { TeacherPanel } from "./ui/teacher";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -98,8 +101,12 @@ async function boot(): Promise<void> {
   const traffic = new Traffic();
   engine.scene.add(traffic.group);
 
-  const npcs = new Npcs();
-  npcs.applyProgress(state.helped);
+  // The mode decides what the citizens ask, so the crowd cannot be built until
+  // it is chosen. Everything else — the city, the traffic, the sun — is the
+  // same city whichever mode is played, and is built once behind the splash.
+  let mode: GameMode = MODES.vocabulary;
+  let missions: Mission[] = missionsFor(mode);
+  let npcs = new Npcs(mode);
   engine.scene.add(npcs.group);
 
   const player = new Player(START);
@@ -119,7 +126,7 @@ async function boot(): Promise<void> {
   container!.appendChild(ui);
 
   const speech = new Speech();
-  const hud = new CityHud(ui, speech, state, {
+  const hud = new CityHud(ui, speech, state, () => missions, {
     onReset: () => {
       clearSave();
       location.reload();
@@ -132,13 +139,13 @@ async function boot(): Promise<void> {
     state.hintTargetId ? BUILDING_BY_ID.get(state.hintTargetId) ?? null : null;
 
   function checkMissions(): void {
-    for (const mission of MISSIONS) {
+    for (const mission of missions) {
       if (!state.missionsDone.has(mission.id) && mission.get(state) >= mission.goal) {
         state.missionsDone.add(mission.id);
         hud.showToast(mission.icon, "Mission complete!", mission.label);
       }
     }
-    if (!state.champion && state.missionsDone.size === MISSIONS.length) {
+    if (!state.champion && missions.every((m) => state.missionsDone.has(m.id))) {
       state.champion = true;
       hud.showToast("👑", "City champion!", "Every mission in Da World is done.");
     }
@@ -199,7 +206,7 @@ async function boot(): Promise<void> {
   });
 
   /** The world only listens while nothing is covering it. */
-  const busy = (): boolean => dialog.open || hud.isBlocking;
+  const busy = (): boolean => dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -227,6 +234,7 @@ async function boot(): Promise<void> {
 
   input.onCancel(() => {
     if (dialog.open) dialog.close();
+    else if (teacher.isOpen) teacher.toggle(false);
     else if (hud.closeTop()) return;
     else input.releasePointerLock();
   });
@@ -303,6 +311,64 @@ async function boot(): Promise<void> {
     input.endFrame();
   });
 
+  /**
+   * Start a mode.
+   *
+   * The city stays; the crowd is rebuilt, because who is standing where is the
+   * same but what they ask is not. Progress is deliberately *not* reset — a
+   * class that switches from Vocabulary to Directions keeps the places it has
+   * walked past and the citizens it has already helped.
+   */
+  function startMode(next: GameMode): void {
+    mode = next;
+    missions = missionsFor(mode);
+    rememberMode(mode.id);
+
+    engine.scene.remove(npcs.group);
+    npcs = new Npcs(mode);
+    npcs.applyProgress(state.helped);
+    engine.scene.add(npcs.group);
+    player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
+    near = null;
+
+    menu.hide();
+    hud.setMode(mode);
+    checkMissions();
+    syncInput();
+
+    if (mode.networked) {
+      hud.showToast(
+        "👥",
+        "Class mode is not connected",
+        "Nobody else is in this city yet — see server/README.md to run the class server.",
+      );
+    }
+  }
+
+  const menu = new Menu(ui, state, quality, {
+    onStart: (chosen) => startMode(chosen),
+    onQuality: (name) => {
+      engine.setQuality(name);
+      environment.setShadowQuality(QUALITY[name].shadowMap, QUALITY[name].shadowRadius);
+      setTextureAnisotropy(QUALITY[name].anisotropy);
+      rememberQuality(name);
+    },
+    onTeacher: () => teacher.toggle(true),
+  });
+
+  const teacher = new TeacherPanel(ui, state, {
+    onSetGoal: (mission) => {
+      state.focusMissionId = mission?.id ?? null;
+      hud.refresh();
+      saveState(state);
+    },
+    onSwitchMode: (chosen) => {
+      teacher.toggle(false);
+      startMode(chosen);
+    },
+    onPause: () => syncInput(),
+  });
+
   engine.start();
   checkMissions();
 
@@ -312,9 +378,16 @@ async function boot(): Promise<void> {
     rig,
     city,
     dayNight,
-    npcs,
     state,
     engine,
+    // A getter, not a value: switching mode rebuilds the crowd, and a captured
+    // reference would quietly hand out the citizens of the previous lesson.
+    get npcs() {
+      return npcs;
+    },
+    get mode() {
+      return mode;
+    },
     goTo: (x: number, z: number, facing = player.body.facing) => {
       player.teleport(x, z);
       player.body.facing = facing;
