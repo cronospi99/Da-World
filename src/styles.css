@@ -1547,3 +1547,53 @@ canvas.webgl {
     font-size: 19px;
   }
 }
+
+/* --- class lobby ----------------------------------------------------------- */
+
+.lobby-field {
+  margin: 14px 0;
+}
+
+.lobby-field.is-hidden {
+  display: none;
+}
+
+.lobby-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #bdb4a3;
+}
+
+.lobby-field .teacher-input {
+  width: 100%;
+}
+
+.lobby-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  font-size: 18px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.lobby-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.lobby-status {
+  min-height: 24px;
+  margin: 6px 0 0;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.lobby-status.is-bad {
+  color: var(--bad);
+}

@@ -35,6 +35,9 @@ import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
 import { TeacherPanel } from "./ui/teacher";
 import { TouchControls, isTouchDevice } from "./ui/touch";
+import { Lobby } from "./ui/lobby";
+import { Classmates } from "./city/classmates";
+import { NetClient } from "./net/client";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -111,6 +114,11 @@ async function boot(): Promise<void> {
   let missions: Mission[] = missionsFor(mode);
   let npcs = new Npcs(mode);
   engine.scene.add(npcs.group);
+
+  // Everybody else in the room, when there is a room. Empty and free the rest
+  // of the time — Class mode is the only thing in the game that needs a server.
+  const classmates = new Classmates();
+  engine.scene.add(classmates.group);
 
   const player = new Player(START);
   player.body.facing = START_FACING;
@@ -197,6 +205,7 @@ async function boot(): Promise<void> {
       refreshGrammarQuest(npc);
       checkMissions();
       saveState(state);
+      net.progress(state.score, state.helped.size);
     },
     onWrong() {
       /* The card says what went wrong; nothing else has to happen. */
@@ -209,7 +218,8 @@ async function boot(): Promise<void> {
   });
 
   /** The world only listens while nothing is covering it. */
-  const busy = (): boolean => dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen;
+  const busy = (): boolean =>
+    dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen || lobby.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -287,6 +297,8 @@ async function boot(): Promise<void> {
     environment.follow(elapsed, player.position);
     traffic.update(dt, elapsed, player.position.x, player.position.z);
     npcs.update(dt, elapsed, player.position.x, player.position.z);
+    classmates.update(dt, player.position.x, player.position.z);
+    if (!paused) net.move(player.position.x, player.position.z, player.body.facing);
     city.update(elapsed, hintTarget());
 
     if (!paused) {
@@ -348,14 +360,59 @@ async function boot(): Promise<void> {
     checkMissions();
     syncInput();
 
-    if (mode.networked) {
-      hud.showToast(
-        "👥",
-        "Class mode is not connected",
-        "Nobody else is in this city yet — see server/README.md to run the class server.",
-      );
-    }
   }
+
+  /* --------------------------- the class -------------------------------- */
+
+  const net = new NetClient({
+    onReady: (_you, peers, goal, netMode) => {
+      lobby.toggle(false);
+      classmates.clear();
+      for (const peer of peers) classmates.add(peer);
+      state.focusMissionId = goal;
+      const chosen = netMode ? MODES[netMode as keyof typeof MODES] : null;
+      startMode(chosen ?? MODES.vocabulary);
+      hud.showToast("👥", "You are in the class", `${peers.length + 1} in the city.`);
+    },
+    onDenied: (reason) => lobby.fail(reason),
+    onJoined: (peer) => {
+      classmates.add(peer);
+      hud.showToast("👋", `${peer.name} joined`, `${classmates.peers().length + 1} in the city.`);
+    },
+    onLeft: (id) => classmates.remove(id),
+    onPositions: (peers) => classmates.setPositions(peers),
+    onProgress: (id, score, helped) => classmates.setProgress(id, score, helped),
+    onGoal: (missionId) => {
+      state.focusMissionId = missionId;
+      hud.refresh();
+      if (missionId) {
+        const mission = missions.find((m) => m.id === missionId);
+        if (mission) hud.showToast("🎯", "New mission from your teacher", mission.label);
+      }
+    },
+    onMode: (modeId) => {
+      const chosen = MODES[modeId as keyof typeof MODES];
+      if (chosen && chosen.id !== mode.id) startMode(chosen);
+    },
+    onClosed: () => {
+      classmates.clear();
+      if (playing) {
+        hud.showToast("🔌", "Disconnected from the class", "The city carries on without them.");
+      }
+    },
+  });
+
+  const lobby = new Lobby(ui, {
+    onJoin: (details) =>
+      net.join({
+        url: details.url,
+        room: details.room,
+        name: details.name,
+        role: details.asTeacher ? "teacher" : "student",
+        passphrase: details.passphrase,
+      }),
+    onCancel: () => menu.show(),
+  });
 
   // Drawn only where there are thumbs. On a phone held upright the desktop
   // scheme — invisible stick, tap to jump — is undiscoverable, so the controls
@@ -365,7 +422,16 @@ async function boot(): Promise<void> {
     : null;
 
   const menu = new Menu(ui, state, quality, {
-    onStart: (chosen) => startMode(chosen),
+    onStart: (chosen) => {
+      // Class mode is the one that needs somewhere to connect to, so it asks
+      // before it starts; everything else walks straight into the city.
+      if (chosen.networked) {
+        menu.hide();
+        lobby.toggle(true);
+        return;
+      }
+      startMode(chosen);
+    },
     onQuality: (name) => {
       engine.setQuality(name);
       environment.setShadowQuality(QUALITY[name].shadowMap, QUALITY[name].shadowRadius);
@@ -380,9 +446,13 @@ async function boot(): Promise<void> {
       state.focusMissionId = mission?.id ?? null;
       hud.refresh();
       saveState(state);
+      // In a class the goal is the room's, not this browser's: the server
+      // fans it out and every screen shows the same line.
+      net.setGoal(state.focusMissionId);
     },
     onSwitchMode: (chosen) => {
       teacher.toggle(false);
+      net.setMode(chosen.id);
       startMode(chosen);
     },
     onPause: () => syncInput(),
@@ -407,6 +477,8 @@ async function boot(): Promise<void> {
     get mode() {
       return mode;
     },
+    classmates,
+    classmatesGroup: classmates.group,
     goTo: (x: number, z: number, facing = player.body.facing) => {
       player.teleport(x, z);
       player.body.facing = facing;

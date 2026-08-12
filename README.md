@@ -17,6 +17,27 @@ npm run preview  # serve the built output on :4173
 npm run smoke    # boots the build in headless Chromium and screenshots it
 ```
 
+Class mode needs a server; the rest of the game does not. See
+[`server/README.md`](server/README.md).
+
+## Modes
+
+| | |
+| --- | --- |
+| **Vocabulary** | There is / there are, some / any / no, much / many / a lot of, prepositions of place, and the words for a city |
+| **Directions** | Go straight on, turn left, count the blocks, name the street |
+| **Class** | Up to twelve students and one teacher in the same city |
+
+A mode is not a different city. It is the same ninety-one places and the same
+thirty-two citizens asking a different kind of question, so a class working on
+prepositions and a class working on directions walk the same streets and read
+the same signs. Switching keeps your progress.
+
+The **teacher panel** (👩‍🏫 on the menu) sets the mission the whole room is
+working towards, shows first-try accuracy per language point, and exports it as
+CSV. Its passphrase is a classroom lock rather than security — the real one
+lives on the class server, which never sends it to a student's browser.
+
 ## Controls
 
 | | |
@@ -29,6 +50,11 @@ npm run smoke    # boots the build in headless Chromium and screenshots it
 | Talk to somebody | Walk up to them and press `E` |
 | Missions | `M` |
 | Re-centre the camera | `R` |
+
+On a phone the controls are drawn on the screen: a stick that appears under
+your left thumb wherever you put it, a 💬 button that lights up when somebody
+is in range, and a jump button. Aiming is a drag anywhere else. Held upright,
+the HUD stacks and the cards become sheets you can reach.
 
 You may only walk on the pavements, the crossings and the parks. That is a
 language rule before it is a road-safety one: if you could cut diagonally across
