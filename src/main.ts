@@ -34,6 +34,7 @@ import { Player } from "./game/player";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
 import { TeacherPanel } from "./ui/teacher";
+import { TouchControls, isTouchDevice } from "./ui/touch";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -105,6 +106,8 @@ async function boot(): Promise<void> {
   // it is chosen. Everything else — the city, the traffic, the sun — is the
   // same city whichever mode is played, and is built once behind the splash.
   let mode: GameMode = MODES.vocabulary;
+  /** True once a mode has been started, so the HUD and controls are live. */
+  let playing = false;
   let missions: Mission[] = missionsFor(mode);
   let npcs = new Npcs(mode);
   engine.scene.add(npcs.group);
@@ -226,11 +229,14 @@ async function boot(): Promise<void> {
     syncInput();
   }
 
-  input.onInteract(() => {
+  /** The one verb: talk to whoever is in front of you, or resume a card. */
+  function tryTalk(): void {
     if (busy()) return;
     if (dialog.minimized && dialog.current) talk(dialog.current);
     else if (near) talk(near);
-  });
+  }
+
+  input.onInteract(() => tryTalk());
 
   input.onCancel(() => {
     if (dialog.open) dialog.close();
@@ -263,6 +269,10 @@ async function boot(): Promise<void> {
   engine.onUpdate((dt, elapsed) => {
     input.update();
     const paused = busy();
+    // The thumb controls come off the screen whenever a card is over it: they
+    // are drawn above the world, and a stick sitting on top of an answer is
+    // both ugly and, since it still takes the touch, wrong.
+    touch?.setVisible(playing && !paused);
 
     if (!paused) dayNight.advance(dt);
     const sky = dayNight.current();
@@ -293,6 +303,7 @@ async function boot(): Promise<void> {
 
       near = npcs.nearest(player.position.x, player.position.z);
       hud.setTalkHint(dialog.minimized ? null : near);
+      touch?.setTalkReady(!!near || dialog.minimized);
 
       saveTimer += dt;
       if (saveTimer > 20) {
@@ -331,6 +342,7 @@ async function boot(): Promise<void> {
     player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
     near = null;
 
+    playing = true;
     menu.hide();
     hud.setMode(mode);
     checkMissions();
@@ -344,6 +356,13 @@ async function boot(): Promise<void> {
       );
     }
   }
+
+  // Drawn only where there are thumbs. On a phone held upright the desktop
+  // scheme — invisible stick, tap to jump — is undiscoverable, so the controls
+  // are on the screen where you can see them.
+  const touch = isTouchDevice()
+    ? new TouchControls(ui, input, { onTalk: () => tryTalk() })
+    : null;
 
   const menu = new Menu(ui, state, quality, {
     onStart: (chosen) => startMode(chosen),
@@ -429,7 +448,9 @@ async function boot(): Promise<void> {
         hud.showToast(
           "🚸",
           "Welcome to Da World",
-          "Stay on the pavement, cross at the crossings, and press E to talk to anybody with a ❓.",
+          touch
+            ? "Stay on the pavement, cross at the crossings, and tap 💬 to talk to anybody with a ❓."
+            : "Stay on the pavement, cross at the crossings, and press E to talk to anybody with a ❓.",
         ),
       900,
     );

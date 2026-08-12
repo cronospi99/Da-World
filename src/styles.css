@@ -955,6 +955,7 @@ canvas.webgl {
 .menu-screen {
   position: absolute;
   inset: 0;
+  visibility: visible;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -962,12 +963,20 @@ canvas.webgl {
   overflow-y: auto;
   background-color: rgba(60, 54, 46, 0.28);
   pointer-events: auto;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.4s ease, visibility 0s;
 }
 
 .menu-screen.is-gone {
   opacity: 0;
+  /* `visibility` and not only `pointer-events`, because `.ui-layer button`
+     re-enables pointer events on every button in the layer — including the
+     mode cards of a menu that has been dismissed, which then went on quietly
+     swallowing every tap in the top half of a phone screen. Visibility takes
+     a subtree out of hit testing outright, and the delay lets the fade finish
+     before it does. */
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity 0.4s ease, visibility 0s linear 0.4s;
 }
 
 .menu-panel {
@@ -1262,4 +1271,279 @@ canvas.webgl {
 .teacher-table td:not(:first-child) {
   width: 5.5em;
   text-align: right;
+}
+
+/* --- touch controls --------------------------------------------------------
+   Drawn only on touch devices. The stick appears under the thumb rather than
+   the thumb having to find the stick — see src/ui/touch.ts.
+   --------------------------------------------------------------------------- */
+
+.touch-layer {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.touch-layer.is-on {
+  display: block;
+}
+
+.stick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  height: 46%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.stick-base {
+  position: absolute;
+  left: 24%;
+  top: 62%;
+  width: 124px;
+  height: 124px;
+  margin: -62px 0 0 -62px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 246, 227, 0.55);
+  background-color: rgba(113, 108, 102, 0.22);
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.stick-base.is-held {
+  opacity: 0.95;
+}
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background-color: var(--paper);
+  box-shadow: 3px 3px 0 rgba(113, 108, 102, 0.5);
+  transform: translate(-50%, -50%);
+}
+
+.touch-buttons {
+  position: absolute;
+  right: 22px;
+  bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.touch-button {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  padding: 0;
+  border: 3px solid rgba(255, 246, 227, 0.6);
+  border-radius: 50%;
+  background-color: rgba(250, 242, 226, 0.82);
+  color: var(--ink);
+  font-size: 30px;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+  transition: transform 0.12s ease, background-color 0.2s ease;
+}
+
+.touch-button:active {
+  transform: scale(0.93);
+}
+
+.touch-talk {
+  opacity: 0.45;
+  transition: opacity 0.2s ease, transform 0.12s ease, background-color 0.2s ease;
+}
+
+.touch-talk.is-ready {
+  opacity: 1;
+  background-color: #ffe9a8;
+  animation: marker-bob 2.4s ease-in-out infinite;
+}
+
+/* --- portrait phones -------------------------------------------------------
+   The HUD stacks, the cards fill the width, and everything the thumbs need
+   stays in the bottom third where the thumbs are.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
+  .hud-top-left {
+    top: 12px;
+    left: 14px;
+    max-width: calc(100vw - 90px);
+  }
+
+  .hud-place-name {
+    font-size: 22px;
+  }
+
+  .hud-place-sub {
+    font-size: 13px;
+  }
+
+  .hud-mission {
+    max-width: none;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+
+  .hud-bar {
+    width: 42vw;
+    margin-top: 8px;
+  }
+
+  .hud-bar-label {
+    font-size: 11px;
+  }
+
+  .hud-top-right {
+    top: 12px;
+    right: 14px;
+    gap: 9px;
+  }
+
+  .tile-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  /* The talk prompt sits above the thumb buttons rather than under them. */
+  .hud-hint {
+    bottom: 118px;
+    left: 50%;
+    max-width: 90vw;
+    padding: 9px 14px;
+    font-size: 15px;
+    text-align: center;
+  }
+
+  .resume-pill {
+    bottom: 118px;
+    font-size: 15px;
+  }
+
+  .hud-toast {
+    top: 12px;
+    left: 50%;
+    max-width: 92vw;
+    padding: 10px 16px;
+  }
+
+  .hud-toast strong {
+    font-size: 18px;
+  }
+
+  .hud-toast span {
+    font-size: 14px;
+  }
+
+  /* Cards become sheets: full width, anchored low, thumb-reachable. */
+  .overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .card {
+    max-width: none;
+  }
+
+  .card-shadow {
+    transform: translate(5px, 5px) rotate(0.4deg);
+  }
+
+  .card-body {
+    max-height: 78vh;
+    padding: 22px 18px 18px;
+  }
+
+  .talk-overlay .card-body {
+    max-height: 78vh;
+    padding: 20px 16px 16px;
+  }
+
+  .tile-button.close {
+    top: 12px;
+    right: 12px;
+  }
+
+  .talk-face {
+    width: 50px;
+    height: 50px;
+    font-size: 28px;
+  }
+
+  .talk-name {
+    font-size: 23px;
+  }
+
+  .talk-question {
+    font-size: 18px;
+  }
+
+  .talk-overlay .quiz-option {
+    font-size: 16px;
+    padding: 12px 13px;
+  }
+
+  .quiz-options {
+    grid-template-columns: 1fr;
+  }
+
+  .pill-button {
+    padding: 11px 20px;
+    font-size: 17px;
+  }
+
+  /* The menu is a full-height sheet on a phone, not a floating card. */
+  .menu-screen {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .menu-panel {
+    max-width: none;
+    min-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 20px 16px 28px;
+  }
+
+  .menu-title {
+    font-size: 34px;
+  }
+
+  .menu-sub {
+    font-size: 16px;
+  }
+
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-covers {
+    font-size: 13px;
+  }
+
+  .menu-actions {
+    position: sticky;
+    bottom: 0;
+    margin-top: 22px;
+    padding: 12px 0 4px;
+    background: linear-gradient(to top, var(--paper) 70%, rgba(255, 246, 227, 0));
+  }
+
+  .menu-start {
+    flex: 1 1 auto;
+    font-size: 19px;
+  }
 }
