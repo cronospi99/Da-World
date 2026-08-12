@@ -3,6 +3,7 @@ import "./styles.css";
 
 import { Engine } from "./core/engine";
 import { Input } from "./core/input";
+import { detectQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City } from "./city/city";
 import { BODY_RADIUS } from "./city/ground";
@@ -12,6 +13,7 @@ import { KIT_REQUESTS } from "./city/kit";
 import { loadKits } from "./city/kits";
 import { Npcs } from "./city/npcs";
 import { setNightGlow } from "./city/palette";
+import { setTextureAnisotropy } from "./city/textures";
 import { Traffic } from "./city/traffic";
 import { MISSIONS } from "./game/missions";
 import { refreshGrammarQuest, type Npc } from "./game/quests";
@@ -74,8 +76,15 @@ const setProgress = (fraction: number): void => {
 };
 
 async function boot(): Promise<void> {
-  const engine = new Engine(container!);
+  // The graphics settings are chosen before anything is built, because two of
+  // them — the anisotropy on the ground textures and the size of the sun's
+  // shadow map — are baked into things the city makes at construction time.
+  const quality = detectQuality();
+  setTextureAnisotropy(QUALITY[quality].anisotropy);
+
+  const engine = new Engine(container!, quality);
   const environment = createEnvironment(engine.scene, engine.renderer);
+  environment.setShadowQuality(QUALITY[quality].shadowMap, QUALITY[quality].shadowRadius);
 
   const state = createState();
   loadState(state);

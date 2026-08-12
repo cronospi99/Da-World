@@ -95,6 +95,8 @@ export interface Post {
   composer: EffectComposer;
   grade: ShaderPass;
   setSize(width: number, height: number): void;
+  /** Rebuild the render target at a new MSAA sample count. */
+  setSamples(samples: number): void;
   /** 0 = paper white, 1 = fully graded scene. */
   setTransition(value: number): void;
   /** 0 = broad daylight, 1 = deep night. */
@@ -125,8 +127,20 @@ export function createPost(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
+  samples: number,
 ): Post {
-  const composer = new EffectComposer(renderer);
+  // The composer renders into this target, not into the canvas, which is why
+  // the renderer's own `antialias: true` never did anything: it applies to the
+  // default framebuffer and every frame here goes through the grade. Asking
+  // for the samples *here* is what actually anti-aliases the city.
+  const size = new THREE.Vector2();
+  renderer.getDrawingBufferSize(size);
+  const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+    type: THREE.HalfFloatType,
+    samples,
+  });
+
+  const composer = new EffectComposer(renderer, target);
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(window.innerWidth, window.innerHeight);
 
@@ -145,6 +159,11 @@ export function createPost(
     setSize(width, height) {
       composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(width, height);
+    },
+    setSamples(next) {
+      if (target.samples === next) return;
+      target.samples = next;
+      target.dispose();
     },
     setTransition(value) {
       grade.uniforms.uTransition.value = value;
