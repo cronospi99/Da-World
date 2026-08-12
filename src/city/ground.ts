@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { BUILDINGS } from "./buildings";
 import { CURB, TREE_SPOTS } from "./city";
+import { hitsProp } from "./props";
 import {
   CROSSING_REACH,
   GH,
@@ -79,6 +80,14 @@ export function groundHeight(x: number, z: number): number {
 const EDGE = 0.14;
 /** Clearance kept between a body and a shopfront. */
 const SHOP_PAD = 0.12;
+/**
+ * Clearance kept between a body and a lamp post, bin, bench or bollard.
+ *
+ * Deliberately smaller than the shop pad. A pavement is furnished, and being
+ * held half a metre off every bollard would turn a walk down a street into a
+ * slalom; brushing past one is what walking past one looks like.
+ */
+const PROP_PAD = 0.14;
 
 /**
  * May a pedestrian stand at this tile-space point?
@@ -97,6 +106,10 @@ const SHOP_PAD = 0.12;
 export function walkable(x: number, z: number): boolean {
   if (x < EDGE || z < EDGE || x > GW - EDGE || z > GH - EDGE) return false;
   if (blocked(x, z, SHOP_PAD)) return false;
+  // Lamp posts, bollards, benches, bins, planters and tree trunks. Registered
+  // by the builders in `city.ts` as they place them, so what you see on the
+  // pavement and what stops you there cannot drift apart.
+  if (hitsProp(x, z, PROP_PAD)) return false;
   // Parks and squares are open ground: roam them freely.
   if (inZone(x, z)) return true;
 
@@ -305,22 +318,32 @@ export function resolveMove(
   toX: number,
   toZ: number,
   out: { x: number; z: number; hitX: boolean; hitZ: boolean },
+  /**
+   * Anything else in the way that the city itself does not know about — the
+   * other people walking around, who move. The static world is a lookup; the
+   * crowd is a callback, because it is different every frame.
+   */
+  extra?: (x: number, z: number) => boolean,
 ): void {
+  const free = extra
+    ? (px: number, pz: number): boolean => walkable(px, pz) && !extra(px, pz)
+    : walkable;
+
   let x = THREE.MathUtils.clamp(toX, CITY_BOUNDS.minX, CITY_BOUNDS.maxX);
   let z = THREE.MathUtils.clamp(toZ, CITY_BOUNDS.minZ, CITY_BOUNDS.maxZ);
   out.hitX = x !== toX;
   out.hitZ = z !== toZ;
 
-  if (!walkable(x, fromZ)) {
+  if (!free(x, fromZ)) {
     x = fromX;
     out.hitX = true;
   }
-  if (!walkable(x, z)) {
+  if (!free(x, z)) {
     z = fromZ;
     out.hitZ = true;
   }
   // A corner can still trap us if both axes were legal alone but not together.
-  if (!walkable(x, z)) {
+  if (!free(x, z)) {
     x = fromX;
     z = fromZ;
     out.hitX = true;

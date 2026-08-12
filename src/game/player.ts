@@ -1,15 +1,23 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
-import { mat } from "../city/palette";
-import { CharacterModel, TARGET_HEIGHT } from "./characterModel";
+import { Character, PERSON_HEIGHT, PERSON_SCALE } from "../city/character";
 import { CharacterBody, type MotionState } from "./physics";
 
 /**
  * The traveller.
  *
- * All movement lives in physics.ts. This file owns the visuals: a rigged GLB
- * when it has loaded, and a primitive stand-in before that (and if the model
- * ever fails to load, so a broken asset never costs you the game).
+ * All movement lives in physics.ts. This file owns the visuals — and since the
+ * city was repopulated with citizens, that means one decision worth writing
+ * down: the player is a person, built from the same low-poly rig every citizen
+ * in the city is built from, at the same height.
+ *
+ * The rigged robot GLB that used to stand here was a fine model and completely
+ * wrong for this game. It was half a metre taller than the people around it, it
+ * shaded differently, it cost a multi-megabyte download before the character
+ * appeared at all, and in a city where the whole point is walking up to people
+ * and talking to them, the player was the one thing on the pavement that was
+ * not one of them. The procedural rig has no download, no loading state and no
+ * failure mode, and it wears the same clothes as everybody else.
  *
  * It also owns one movement subtlety — see `directionFor` at the bottom.
  */
@@ -23,37 +31,23 @@ import { CharacterBody, type MotionState } from "./physics";
  */
 const SPRINT_BOOST = 1.85;
 
-/** Seconds standing still before the idle fidget plays. */
-const BORED_AFTER = 9;
-const BORED_LENGTH = 3.4;
+/** Ground speed the walk cycle is at full tilt, in units per second. */
+const FULL_STRIDE_SPEED = 5.2;
 
-/**
- * The primitive stand-in is modelled at roughly 2.2 units tall, because it was
- * drawn for the island. It is scaled to the same height as the rigged model so
- * that the moment before the GLB arrives — and the case where the GLB never
- * arrives at all — does not put a giant on the pavement.
- */
-const STAND_IN_HEIGHT = 2.2;
+/** The explorer: the one person in the city dressed like a visitor to it. */
+const EXPLORER = {
+  shirt: "#19b8e8",
+  pants: "#3a2a5e",
+  skin: "#f0c39a",
+  hair: "#7a3df0",
+  outfit: "backpack",
+} as const;
 
 export class Player {
   readonly object = new THREE.Group();
   readonly body: CharacterBody;
 
-  /** Scales the primitive parts to the world; `rig` keeps its own animation. */
-  private readonly standIn = new THREE.Group();
-  private readonly rig = new THREE.Group();
-  private readonly legs: THREE.Mesh[] = [];
-  private readonly arms: THREE.Mesh[] = [];
-  private readonly head: THREE.Mesh;
-  private readonly hat = new THREE.Group();
-
-  private model: CharacterModel | null = null;
-  private stride = 0;
-  private idleTime = 0;
-  private boredTime = -1;
-  /** Smoothed 0..1 blend into the running pose, so states do not snap. */
-  private runBlend = 0;
-  private airBlend = 0;
+  private readonly person: Character;
   private squash = 0;
 
   /**
@@ -68,50 +62,8 @@ export class Player {
   constructor(start: THREE.Vector2) {
     this.body = new CharacterBody(start);
 
-    // The stand-in is only ever on screen for the moment before the rigged
-    // model arrives, so it borrows the city's own materials rather than
-    // dragging a second shading model into the build.
-    const skin = mat("#e8b98d");
-    const shirt = mat("#d96f52");
-    const trousers = mat("#4c6a86");
-    const felt = mat("#f3e3bd", { roughness: 0.95 });
-
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.5, 3, 8), shirt);
-    torso.position.y = 1.15;
-    this.rig.add(torso);
-
-    this.head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), skin);
-    this.head.position.y = 1.82;
-    this.rig.add(this.head);
-
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 10), felt);
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.3, 10), felt);
-    brim.position.y = 0;
-    crown.position.y = 0.15;
-    this.hat.add(brim, crown);
-    this.hat.position.y = 2.02;
-    this.rig.add(this.hat);
-
-    for (const side of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.45, 2, 6), skin);
-      arm.position.set(side * 0.44, 1.22, 0);
-      this.arms.push(arm);
-      this.rig.add(arm);
-
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.5, 2, 6), trousers);
-      leg.position.set(side * 0.18, 0.45, 0);
-      this.legs.push(leg);
-      this.rig.add(leg);
-    }
-
-    this.rig.traverse((child) => {
-      child.castShadow = true;
-      child.receiveShadow = true;
-    });
-
-    this.standIn.scale.setScalar(TARGET_HEIGHT / STAND_IN_HEIGHT);
-    this.standIn.add(this.rig);
-    this.object.add(this.standIn);
+    this.person = new Character({ ...EXPLORER }, PERSON_SCALE);
+    this.object.add(this.person.group);
     this.object.name = "player";
     this.object.position.copy(this.body.position);
   }
@@ -125,6 +77,11 @@ export class Player {
     return this.body.state;
   }
 
+  /** How tall the player is, for anything that has to frame or clear them. */
+  get height(): number {
+    return PERSON_HEIGHT;
+  }
+
   teleport(x: number, z: number): void {
     this.body.teleport(x, z);
     this.object.position.copy(this.body.position);
@@ -135,17 +92,26 @@ export class Player {
 
     this.body.boost = input.sprint ? SPRINT_BOOST : 1;
     this.body.update(dt, direction, input.consumeJump());
-    if (this.model && this.body.justJumped) this.model.onJump();
 
     this.object.position.copy(this.body.position);
     this.object.rotation.y = this.body.facing;
 
-    if (this.model) {
-      this.model.update(dt, this.body.state, this.body.speed);
-      this.animateFallbackOnly(dt);
-    } else {
-      this.animate(dt);
-    }
+    // Landing squash, released over the next few frames. The walk cycle itself
+    // lives in `Character`, so this is the only pose the player has that a
+    // citizen does not.
+    if (this.body.justLanded) this.squash = Math.min(1, this.body.airTime * 1.6 + 0.35);
+    if (this.body.justJumped) this.squash = -0.5;
+    this.squash = THREE.MathUtils.damp(this.squash, 0, 9, dt);
+
+    const speed01 = this.body.grounded
+      ? Math.min(1, this.body.speed / FULL_STRIDE_SPEED)
+      : 0.25;
+    this.person.update(dt, speed01);
+    this.person.group.scale.set(
+      PERSON_SCALE * (1 + this.squash * 0.14),
+      PERSON_SCALE * (1 - this.squash * 0.2),
+      PERSON_SCALE * (1 + this.squash * 0.14),
+    );
   }
 
   /**
@@ -185,111 +151,5 @@ export class Player {
       this.hasHeldDirection = true;
     }
     return this.heldDirection;
-  }
-
-  /** With the GLB driving the pose, only the hat/squash extras still apply. */
-  private animateFallbackOnly(dt: number): void {
-    if (this.body.justLanded) this.squash = Math.min(1, this.body.airTime * 1.6 + 0.35);
-    if (this.body.justJumped) this.squash = -0.5;
-    this.squash = THREE.MathUtils.damp(this.squash, 0, 9, dt);
-
-    if (this.body.state === "idle") {
-      this.idleTime += dt;
-      if (this.boredTime < 0 && this.idleTime > BORED_AFTER) {
-        this.boredTime = 0;
-        this.model?.onBored();
-      }
-    } else {
-      this.idleTime = 0;
-      this.boredTime = -1;
-    }
-    if (this.boredTime >= 0) {
-      this.boredTime += dt;
-      if (this.boredTime > BORED_LENGTH) {
-        this.boredTime = -1;
-        this.idleTime = 0;
-      }
-    }
-  }
-
-  /** Swap the primitive stand-in for the rigged model. */
-  attachModel(model: CharacterModel): void {
-    this.model = model;
-    this.standIn.visible = false;
-    this.object.add(model.object);
-  }
-
-  private animate(dt: number): void {
-    const state = this.body.state;
-    const speed = this.body.speed;
-
-    // Landing squash, released over the next few frames.
-    if (this.body.justLanded) this.squash = Math.min(1, this.body.airTime * 1.6 + 0.35);
-    if (this.body.justJumped) this.squash = -0.5;
-    this.squash = THREE.MathUtils.damp(this.squash, 0, 9, dt);
-
-    // Blend between poses instead of switching, so transitions read smoothly.
-    this.runBlend = THREE.MathUtils.damp(this.runBlend, state === "run" ? 1 : 0, 12, dt);
-    this.airBlend = THREE.MathUtils.damp(this.airBlend, state === "air" ? 1 : 0, 10, dt);
-
-    // --- bored timer ------------------------------------------------------
-    if (state === "idle") {
-      this.idleTime += dt;
-      if (this.boredTime < 0 && this.idleTime > BORED_AFTER) this.boredTime = 0;
-    } else {
-      this.idleTime = 0;
-      this.boredTime = -1;
-    }
-    if (this.boredTime >= 0) {
-      this.boredTime += dt;
-      if (this.boredTime > BORED_LENGTH) {
-        this.boredTime = -1;
-        this.idleTime = 0;
-      }
-    }
-
-    // --- run --------------------------------------------------------------
-    this.stride += speed * dt * 2.6;
-    const swing = Math.sin(this.stride) * 0.62 * this.runBlend;
-
-    // --- air --------------------------------------------------------------
-    // Legs tuck up and arms lift; rising and falling read differently.
-    const rising = this.body.velocity.y > 0 ? 1 : 0;
-    const airLeg = THREE.MathUtils.lerp(0.5, -0.35, rising) * this.airBlend;
-    const airArm = THREE.MathUtils.lerp(-0.7, -1.5, rising) * this.airBlend;
-
-    // --- idle / bored -----------------------------------------------------
-    const calm = Math.max(0, 1 - this.runBlend - this.airBlend);
-    const breathe = Math.sin(performance.now() * 0.0016) * 0.02 * calm;
-
-    let boredLean = 0;
-    let boredHead = 0;
-    if (this.boredTime >= 0) {
-      // One slow look left, then right, then back.
-      const t = this.boredTime / BORED_LENGTH;
-      boredHead = Math.sin(t * Math.PI * 2) * 0.75;
-      boredLean = Math.sin(t * Math.PI) * 0.06;
-    }
-
-    this.legs[0]!.rotation.x = swing + airLeg;
-    this.legs[1]!.rotation.x = -swing + airLeg;
-    this.arms[0]!.rotation.x = -swing * 0.7 + airArm;
-    this.arms[1]!.rotation.x = swing * 0.7 + airArm;
-    this.arms[0]!.rotation.z = 0.08 * this.airBlend;
-    this.arms[1]!.rotation.z = -0.08 * this.airBlend;
-
-    this.head.rotation.y = boredHead;
-    this.hat.rotation.y = boredHead * 0.6;
-    this.hat.rotation.z = 0.05 * this.airBlend + boredLean;
-
-    // Vertical bob from the walk cycle, plus squash/stretch on landing.
-    const bob = Math.abs(Math.sin(this.stride)) * 0.09 * this.runBlend;
-    this.rig.position.y = bob - this.squash * 0.22;
-    this.rig.scale.set(
-      1 + this.squash * 0.14,
-      1 - this.squash * 0.2 + breathe,
-      1 + this.squash * 0.14,
-    );
-    this.rig.rotation.z = boredLean;
   }
 }

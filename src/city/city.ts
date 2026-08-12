@@ -44,8 +44,11 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
+  FURNITURE_OFFSET,
   GH,
   GW,
+  SIDEWALK_W,
+  kerbLine,
   HROADS,
   INTERSECTIONS,
   PARKS,
@@ -60,6 +63,7 @@ import {
   type Zone,
 } from './layout';
 import { BUILDINGS, type Building } from './buildings';
+import { solid, solidRow } from './props';
 import { TREES, shellFor, wantsRoofPlant } from './kit';
 import {
   kitMaterial,
@@ -408,11 +412,14 @@ function buildGround(parent: Group, painter: DecalPainter): void {
       box(bags, PALETTE.curb, w, CURB, d, cx, CURB / 2, cz, { ...pave, shade: 0.88 });
       box(bags, PALETTE.sidewalk, w - 0.08, 0.03, d - 0.08, cx, CURB, cz, { ...pave, shade: 1 });
 
-      // Grass core = the block minus its pavement ring (1 tile per road side).
-      const l = isRoad(xb.a - 1, yb.a) ? 1 : 0;
-      const r = isRoad(xb.b + 1, yb.a) ? 1 : 0;
-      const t = isRoad(xb.a, yb.a - 1) ? 1 : 0;
-      const b = isRoad(xb.a, yb.b + 1) ? 1 : 0;
+      // Grass core = the block minus its pavement ring. The ring is as wide as
+      // the pavement the pedestrian rules allow you to walk on, or the paving
+      // and the walkable ground stop agreeing and the city grows lawns you can
+      // stand on and paving you cannot.
+      const l = isRoad(xb.a - 1, yb.a) ? SIDEWALK_W : 0;
+      const r = isRoad(xb.b + 1, yb.a) ? SIDEWALK_W : 0;
+      const t = isRoad(xb.a, yb.a - 1) ? SIDEWALK_W : 0;
+      const b = isRoad(xb.a, yb.b + 1) ? SIDEWALK_W : 0;
       const gw = w - l - r;
       const gd = d - t - b;
       if (gw > 0.5 && gd > 0.5) {
@@ -550,8 +557,10 @@ function buildPavementNames(parent: Group, painter: DecalPainter): void {
   };
 
   for (const r of HROADS) {
-    const north = r.rows[0] - 0.5;
-    const south = r.rows[ROAD_W - 1] + 1.5;
+    // Centred on the pavement rather than hugging the kerb: with three tiles to
+    // play with, lettering pushed against the road reads as a mistake.
+    const north = r.rows[0] - SIDEWALK_W / 2;
+    const south = r.rows[ROAD_W - 1] + 1 + SIDEWALK_W / 2;
     for (const band of X_BANDS) {
       const w = band.b - band.a + 1;
       if (w < 6) continue;
@@ -562,8 +571,8 @@ function buildPavementNames(parent: Group, painter: DecalPainter): void {
     }
   }
   for (const r of VROADS) {
-    const west = r.cols[0] - 0.5;
-    const east = r.cols[ROAD_W - 1] + 1.5;
+    const west = r.cols[0] - SIDEWALK_W / 2;
+    const east = r.cols[ROAD_W - 1] + 1 + SIDEWALK_W / 2;
     for (const band of Y_BANDS) {
       const d = band.b - band.a + 1;
       if (d < 6) continue;
@@ -956,8 +965,18 @@ function treeSpots(): TreeSpot[] {
     for (let i = 0; i < count; i++) {
       const x = p.x + 0.8 + rand() * (p.w - 1.6);
       const z = p.y + 0.8 + rand() * (p.h - 1.6);
-      // Keep the water, the lawns and the pitches clear.
-      if (p.kind === 'central' && x > 1.1 && x < 4.6 && z > 1.6 && z < 4.4) continue;
+      // Keep the water, the lawns and the pitches clear. All of these are
+      // measured from the park's own corner: the parks fill a band cell, so
+      // they grow whenever the blocks do.
+      if (
+        p.kind === 'central' &&
+        x > p.x + 0.6 &&
+        x < p.x + 4.4 &&
+        z > p.y + 1.1 &&
+        z < p.y + 4.2
+      ) {
+        continue;
+      }
       if (p.kind === 'riverside' && z > p.y + 2.2 && z < p.y + 6) continue;
       if (p.kind === 'sports' && x > p.x + 1.6 && x < p.x + p.w - 1.6 && z > p.y + 1.2) continue;
       spots.push({ x, z, s: 0.9 + rand() * 0.6, kind: Math.floor(rand() * 3) });
@@ -993,7 +1012,7 @@ function treeSpots(): TreeSpot[] {
   for (const r of HROADS) {
     for (let x = 1.5; x < GW; x += 3.6) {
       if (vColSet.has(Math.floor(x))) continue;
-      for (const z of [r.rows[0] - 0.5, r.rows[ROAD_W - 1] + 1.5]) {
+      for (const z of [kerbLine(r.rows, -1), kerbLine(r.rows, 1)]) {
         if (z < 0 || z > GH || blocked(x, z)) continue;
         spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 0 });
       }
@@ -1002,7 +1021,7 @@ function treeSpots(): TreeSpot[] {
   for (const r of VROADS) {
     for (let z = 1.5; z < GH; z += 3.6) {
       if (hRowSet.has(Math.floor(z))) continue;
-      for (const x of [r.cols[0] - 0.5, r.cols[ROAD_W - 1] + 1.5]) {
+      for (const x of [kerbLine(r.cols, -1), kerbLine(r.cols, 1)]) {
         if (x < 0 || x > GW || blocked(x, z)) continue;
         spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 2 });
       }
@@ -1067,6 +1086,10 @@ function buildVegetation(parent: Group): void {
     mesh.instanceMatrix.needsUpdate = true;
     parent.add(mesh);
   }
+
+  // Only the trunks stop anybody. The canopy is well over head height, so a
+  // tree you can walk under is a tree you should be able to walk under.
+  for (const s of spots) solid(s.x, s.z, s.s * 0.2);
 }
 
 /** Kit lamp posts are 0.67 units tall; the city's stand about three tiles. */
@@ -1100,10 +1123,10 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
   // Lamp posts on every corner of every block, arms reaching over the road.
   for (const it of INTERSECTIONS) {
     for (const [dx, dz] of [
-      [-half - 0.6, -half - 0.6],
-      [half + 0.6, -half - 0.6],
-      [-half - 0.6, half + 0.6],
-      [half + 0.6, half + 0.6],
+      [-half - FURNITURE_OFFSET, -half - FURNITURE_OFFSET],
+      [half + FURNITURE_OFFSET, -half - FURNITURE_OFFSET],
+      [-half - FURNITURE_OFFSET, half + FURNITURE_OFFSET],
+      [half + FURNITURE_OFFSET, half + FURNITURE_OFFSET],
     ] as const) {
       const x = it.cx + dx;
       const z = it.cy + dz;
@@ -1117,10 +1140,14 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
         anchor: 'origin',
       });
       lampLight(x + ax * LAMP_REACH, z, 3.0);
+      solid(x, z, 0.22);
       // A short bollard row keeps cars off the corner and gives the crossing
       // a visible edge from above.
       for (let i = 0; i < 3; i++) {
-        box(bags, PALETTE.metal, 0.14, 0.6, 0.14, x - Math.sign(dx) * (0.1 + i * 0.55), CURB + 0.3, z + Math.sign(dz) * 0.55, { ...trim, round: 0.06 });
+        const bx = x - Math.sign(dx) * (0.1 + i * 0.55);
+        const bz = z + Math.sign(dz) * 0.55;
+        box(bags, PALETTE.metal, 0.14, 0.6, 0.14, bx, CURB + 0.3, bz, { ...trim, round: 0.06 });
+        solid(bx, bz, 0.16);
       }
     }
   }
@@ -1130,7 +1157,7 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
   for (const r of HROADS) {
     for (let x = 4; x < GW; x += 9) {
       if (vColSet.has(Math.floor(x))) continue;
-      for (const z of [r.rows[0] - 0.55, r.rows[ROAD_W - 1] + 1.55]) {
+      for (const z of [kerbLine(r.rows, -1), kerbLine(r.rows, 1)]) {
         const towardsRoad = z < r.rows[0] ? 1 : -1;
         props.add('roads', 'light-curved-double', {
           x,
@@ -1141,6 +1168,7 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
           anchor: 'origin',
         });
         lampLight(x, z + towardsRoad * LAMP_REACH, 2.7);
+        solid(x, z, 0.22);
       }
     }
   }
@@ -1152,8 +1180,10 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
     const x = it.cx + half + 1.4;
     const z = it.cy - half - 1.4;
     props.add('roads', 'construction-barrier', { x, y: CURB, z, scale: 4, rotY: Math.PI / 2 });
+    solid(x, z, 0.5);
     for (let i = 0; i < 3; i++) {
       props.add('roads', 'construction-cone', { x: x + 0.5, y: CURB, z: z + 0.5 + i * 0.6, scale: 4 });
+      solid(x + 0.5, z + 0.5 + i * 0.6, 0.2);
     }
   }
 
@@ -1175,15 +1205,20 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
   for (const r of [HROADS[0], HROADS[2], HROADS[4]]) {
     for (let x = 3.5; x < GW; x += 7) {
       if (vColSet.has(Math.floor(x))) continue;
-      const z = r.rows[ROAD_W - 1] + 1.5;
+      const z = kerbLine(r.rows, 1);
       box(bags, '#a5764a', 1.4, 0.1, 0.46, x, CURB + 0.45, z, { ...trim, round: 0.04 });
       box(bags, '#a5764a', 1.4, 0.46, 0.1, x, CURB + 0.68, z - 0.2, { ...trim, round: 0.04 });
       box(bags, PALETTE.darkMetal, 0.1, 0.45, 0.46, x - 0.6, CURB + 0.22, z, trim);
       box(bags, PALETTE.darkMetal, 0.1, 0.45, 0.46, x + 0.6, CURB + 0.22, z, trim);
+      // The bench is a bar rather than a disc: two circles along it fit the
+      // shape far better than one big one, and you can still sit at the end.
+      solidRow(x - 0.5, z, 0.5, 0, 3, 0.3);
       box(bags, '#4f7f6a', 0.36, 0.55, 0.36, x + 1.7, CURB + 0.27, z, { ...trim, round: 0.05 });
+      solid(x + 1.7, z, 0.26);
       if (rand() < 0.4) {
         box(bags, '#c34a3f', 0.22, 0.5, 0.22, x - 1.7, CURB + 0.25, z, { ...trim, round: 0.08 });
         box(bags, '#c34a3f', 0.42, 0.12, 0.16, x - 1.7, CURB + 0.36, z, trim);
+        solid(x - 1.7, z, 0.18);
       }
     }
   }
@@ -1191,12 +1226,14 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
   // Bus shelters at four stops, on the north pavement of the main streets.
   for (const r of [HROADS[0], HROADS[1], HROADS[3], HROADS[4]]) {
     const x = X_BANDS[2].a + 3.5;
-    const z = r.rows[0] - 0.9;
+    const z = kerbLine(r.rows, -1);
     box(bags, PALETTE.window, 2.6, 1.9, 0.1, x, CURB + 1.05, z - 0.5, { vertexColors: true, shade: 1, roughness: 0.12 });
     box(bags, PALETTE.darkMetal, 2.8, 0.12, 1.3, x, CURB + 2.06, z, trim);
     for (const s of [-1, 1]) {
       box(bags, PALETTE.darkMetal, 0.1, 2.1, 0.1, x + s * 1.3, CURB + 1.05, z + 0.5, trim);
+      solid(x + s * 1.3, z + 0.5, 0.14);
     }
+    solidRow(x - 1.1, z - 0.5, 0.55, 0, 5, 0.24);
     box(bags, '#b0784a', 2.2, 0.1, 0.38, x, CURB + 0.5, z - 0.28, trim);
     box(bags, PALETTE.windowLit, 0.7, 0.5, 0.06, x + 0.9, CURB + 1.3, z - 0.44, { vertexColors: true, shade: 1, glow: 'sign' });
   }
@@ -1210,41 +1247,38 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
       box(bags, '#3f6f8f', 0.7, 1.9, 0.7, x, CURB + 0.95, z, { ...trim, round: 0.07 });
       box(bags, PALETTE.window, 0.5, 1.0, 0.06, x, CURB + 1.2, z - 0.36, { vertexColors: true, shade: 1, glow: 'window' });
       box(bags, '#2b3b4a', 0.86, 0.14, 0.86, x, CURB + 1.96, z, trim);
+      solid(x, z, 0.44);
     }
   }
 
   // Café parasols and planters on the pavement in front of the shops, so a
-  // street is never a bare strip of paving.
+  // street is never a bare strip of paving. They sit at the ends of a frontage
+  // rather than across the middle of it: the door is in the middle, and a
+  // planter in front of a door is a place you cannot visit.
   for (const b of BUILDINGS) {
     if (b.landmark || rand() < 0.45) continue;
     const front = b.face === 'up' ? b.y - 0.55 : b.y + b.h + 0.55;
     const facing = b.face === 'up' ? Math.PI : 0;
     if (rand() < 0.55) {
+      const px = b.x + b.w * (rand() < 0.5 ? 0.16 : 0.84);
       props.add(
         'commercial',
         'detail-parasol-' + (rand() < 0.5 ? 'a' : 'b'),
-        {
-          x: b.x + b.w * (0.25 + rand() * 0.5),
-          y: CURB,
-          z: front,
-          rotY: rand() * Math.PI * 2,
-          scale: 2.2,
-        },
+        { x: px, y: CURB, z: front, rotY: rand() * Math.PI * 2, scale: 2.2 },
         { variation: Math.floor(rand() * variationCount('commercial')) },
       );
+      // Only the table and its stem: a parasol's canopy is over head height,
+      // and being stopped by a shadow is worse than walking through a fringe.
+      solid(px, front, 0.42);
     } else {
+      const px = b.x + b.w * (rand() < 0.5 ? 0.14 : 0.86);
       props.add(
         'suburban',
         'planter',
-        {
-          x: b.x + b.w * (0.2 + rand() * 0.6),
-          y: CURB,
-          z: front,
-          rotY: facing,
-          scale: 2.4,
-        },
+        { x: px, y: CURB, z: front, rotY: facing, scale: 2.4 },
         { variation: Math.floor(rand() * variationCount('suburban')) },
       );
+      solid(px, front, 0.4);
     }
   }
 

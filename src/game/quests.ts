@@ -22,6 +22,7 @@
 import { HROADS, VROADS, INTERSECTIONS, type Intersection } from "../city/layout";
 import { BUILDINGS, doorOf, relationsOf, type Building } from "../city/buildings";
 import { GRAMMAR_BANK, type GrammarItem, type GrammarTag } from "./grammar";
+import { nearestWalkable } from "../city/ground";
 import { mulberry32, shuffle } from "../core/rng";
 import { NPC_DEFS, type NpcDef, type QuestKind } from "../city/npcData";
 
@@ -293,7 +294,17 @@ export function refreshGrammarQuest(npc: Npc): void {
 
 export function buildNpcs(): Npc[] {
   deal = grammarDealer();
-  return NPC_DEFS.map((def, id) => {
+  return NPC_DEFS.map((rawDef, id) => {
+    // The citizens are hand-placed, and the pedestrian rules are derived from
+    // the street grid, so a citizen is snapped onto legal pavement before
+    // anything else happens. It costs nothing when the data is right, and when
+    // a change to the layout moves a street out from under somebody it is the
+    // difference between a citizen you can walk up to and one standing inside
+    // a shop with a quest nobody can reach. The quest is generated from the
+    // snapped position, so what they say stays true of where they are.
+    const spot = nearestWalkable(rawDef.x, rawDef.y);
+    const def: NpcDef = { ...rawDef, x: spot.x, y: spot.z };
+
     const rand = mulberry32(1000 + id * 77);
     if (def.type === "grammar") {
       return {

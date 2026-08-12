@@ -5,6 +5,7 @@ import { Engine } from "./core/engine";
 import { Input } from "./core/input";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City } from "./city/city";
+import { BODY_RADIUS } from "./city/ground";
 import { DayNight } from "./city/daynight";
 import { streetAt, visitsAt } from "./city/discovery";
 import { KIT_REQUESTS } from "./city/kit";
@@ -26,7 +27,6 @@ import {
   XP_WITH_HINT,
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
-import { CharacterModel } from "./game/characterModel";
 import { Player } from "./game/player";
 import { CityHud } from "./ui/cityHud";
 import { Dialog } from "./ui/dialog";
@@ -57,7 +57,7 @@ const container = document.querySelector<HTMLElement>("#app");
 if (!container) throw new Error("#app container is missing from the document");
 
 /** Where you wake up: the pavement on the north side of Main Street. */
-const START = new THREE.Vector2(14, 7.5);
+const START = new THREE.Vector2(24, 11.5);
 /**
  * Facing east, along the pavement.
  *
@@ -95,6 +95,9 @@ async function boot(): Promise<void> {
 
   const player = new Player(START);
   player.body.facing = START_FACING;
+  // The crowd is solid: you stop against the person you are walking up to
+  // rather than standing inside them while they talk to you.
+  player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
   engine.scene.add(player.object);
 
   const rig = new CameraRig(engine.camera);
@@ -293,14 +296,6 @@ async function boot(): Promise<void> {
 
   engine.start();
   checkMissions();
-
-  // The rigged model arrives after the first frame; until then the primitive
-  // stand-in is on screen, so a slow or missing GLB never blocks play.
-  CharacterModel.load()
-    .then((model) => player.attachModel(model))
-    .catch((error) => {
-      console.warn("Character model failed to load, keeping the stand-in.", error);
-    });
 
   // Handy while working on the city: inspect and teleport from the console.
   (window as unknown as Record<string, unknown>).__world = {

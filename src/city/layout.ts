@@ -14,12 +14,29 @@
  * street or an avenue below extends the city and everything follows.
  */
 
-/** Width of every road, in tiles. */
-export const ROAD_W = 4;
+/**
+ * Width of every road, in tiles.
+ *
+ * Six tiles is two generous lanes plus the margin a real street has. It is also
+ * what makes a crossing feel like a crossing: at four the zebra was two strides
+ * and the traffic was on top of you before you had read the light.
+ */
+export const ROAD_W = 6;
+
+/**
+ * Width of the pavement either side of a road, in tiles.
+ *
+ * The whole street furniture budget comes out of this number. At one tile the
+ * pavement was a corridor with a lamp post planted in the middle of it, and
+ * walking down a street meant threading between the kerb and a bin; at three
+ * there is a strip to walk on, a strip for the lamps, trees, benches and
+ * planters, and room to stand at a shop door without being in anybody's way.
+ */
+export const SIDEWALK_W = 3;
 
 /** Grid width / height in tiles. */
-export const GW = 68;
-export const GH = 68;
+export const GW = 99;
+export const GH = 108;
 
 export interface HRoad {
   /** Tile rows covered by the carriageway, north to south. */
@@ -37,19 +54,28 @@ export interface VRoad {
 
 const span = (start: number): number[] => Array.from({ length: ROAD_W }, (_, i) => start + i);
 
+/**
+ * The streets, north to south and west to east.
+ *
+ * The spacing is not decoration: a block has to hold a pavement, a row of
+ * shops, the back of the row facing the other way and its pavement, so the
+ * land between two streets is 13 tiles and the land between two avenues is 15.
+ * Widen a pavement or deepen a shop and these are the numbers that have to
+ * grow with them — everything else in the city is derived.
+ */
 export const HROADS: HRoad[] = [
-  { rows: span(8), name: 'Main Street', short: 'MAIN ST' },
-  { rows: span(20), name: 'Oak Street', short: 'OAK ST' },
-  { rows: span(32), name: 'River Road', short: 'RIVER RD' },
-  { rows: span(44), name: 'Market Street', short: 'MARKET ST' },
-  { rows: span(56), name: 'Sunset Boulevard', short: 'SUNSET BLVD' },
+  { rows: span(13), name: 'Main Street', short: 'MAIN ST' },
+  { rows: span(32), name: 'Oak Street', short: 'OAK ST' },
+  { rows: span(51), name: 'River Road', short: 'RIVER RD' },
+  { rows: span(70), name: 'Market Street', short: 'MARKET ST' },
+  { rows: span(89), name: 'Sunset Boulevard', short: 'SUNSET BLVD' },
 ];
 
 export const VROADS: VRoad[] = [
-  { cols: span(8), name: '1st Avenue', short: '1ST AVE' },
-  { cols: span(23), name: 'Victory Avenue', short: 'VICTORY AVE' },
-  { cols: span(38), name: 'Llama Boulevard', short: 'LLAMA BLVD' },
-  { cols: span(53), name: 'Palm Avenue', short: 'PALM AVE' },
+  { cols: span(15), name: '1st Avenue', short: '1ST AVE' },
+  { cols: span(36), name: 'Victory Avenue', short: 'VICTORY AVE' },
+  { cols: span(57), name: 'Llama Boulevard', short: 'LLAMA BLVD' },
+  { cols: span(78), name: 'Palm Avenue', short: 'PALM AVE' },
 ];
 
 export const hRowSet = new Set<number>(HROADS.flatMap((r) => r.rows));
@@ -59,12 +85,31 @@ export const isRoad = (tx: number, ty: number): boolean => hRowSet.has(ty) || vC
 
 export const inGrid = (tx: number, ty: number): boolean => tx >= 0 && ty >= 0 && tx < GW && ty < GH;
 
-const isRoadN = (tx: number, ty: number): boolean => inGrid(tx, ty) && isRoad(tx, ty);
+/**
+ * A tile is pavement when it is within `SIDEWALK_W` of a road and is not road
+ * itself.
+ *
+ * Precomputed per row and per column rather than probed per tile: the roads are
+ * bands, so "near a road" is a property of the row or the column alone, and the
+ * character controller asks this question twice a tick.
+ */
+const nearBand = (size: number, roadSet: Set<number>): boolean[] => {
+  const near = new Array<boolean>(size).fill(false);
+  for (const line of roadSet) {
+    for (let d = -SIDEWALK_W; d <= SIDEWALK_W; d++) {
+      const i = line + d;
+      if (i >= 0 && i < size) near[i] = true;
+    }
+  }
+  return near;
+};
 
-/** A tile is sidewalk when it touches a road but is not a road itself. */
+const nearHRoad = nearBand(GH, hRowSet);
+const nearVRoad = nearBand(GW, vColSet);
+
 export function isSidewalk(tx: number, ty: number): boolean {
   if (!inGrid(tx, ty) || isRoad(tx, ty)) return false;
-  return isRoadN(tx - 1, ty) || isRoadN(tx + 1, ty) || isRoadN(tx, ty - 1) || isRoadN(tx, ty + 1);
+  return nearHRoad[ty] || nearVRoad[tx];
 }
 
 /** Centre line of a road band, in tiles. */
@@ -106,6 +151,21 @@ export const ROAD_OVERRUN = 16;
  * Wide enough to cover the carriageway plus the kerb on both sides.
  */
 export const CROSSING_REACH = ROAD_W / 2 + 1.0;
+
+/**
+ * How far from the kerb street furniture is planted, in tiles.
+ *
+ * Lamps, trees, benches, bins and signs all line up on this, which is what
+ * turns a wide pavement into a street rather than an apron of empty paving:
+ * a furnished strip along the kerb and a clear strip to walk on behind it.
+ * It is also why nothing on the pavement has to be dodged — see the obstacle
+ * registry in `city/props.ts`.
+ */
+export const FURNITURE_OFFSET = 0.9;
+
+/** Tile-space position of the furniture line on each side of a road band. */
+export const kerbLine = (band: number[], side: -1 | 1): number =>
+  side < 0 ? band[0] - FURNITURE_OFFSET : band[ROAD_W - 1] + 1 + FURNITURE_OFFSET;
 
 /* ------------------------------------------------------------------ *
  * Land bands: the strips of ground between the roads                  *
