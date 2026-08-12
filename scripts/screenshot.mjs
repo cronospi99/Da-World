@@ -61,24 +61,30 @@ await walk("w", 1400);
 await page.keyboard.up("Shift");
 await page.screenshot({ path: `${OUT}/04-sprint.png` });
 
-// Stand in the street outside a door, facing the shop, and read its card.
-await page.evaluate(() => window.__world.goTo(14.05, 8.6, Math.PI));
-await page.waitForTimeout(900);
-await page.keyboard.press("e");
-await page.waitForTimeout(900);
-await page.screenshot({ path: `${OUT}/05-place.png` });
+// Walk up to a lost tourist and open the conversation she is waiting to have.
+await page.evaluate(() => window.__world.talkTo("Sofía"));
+await page.waitForTimeout(1200);
+await page.screenshot({ path: `${OUT}/05-talk.png` });
 await page.keyboard.press("Escape");
 await page.waitForTimeout(400);
 
-// A junction, to see the traffic and the lights.
-await page.evaluate(() => window.__world.goTo(24.5, 13));
+// The mission list: the whole reason to keep walking.
+await page.keyboard.press("m");
+await page.waitForTimeout(600);
+await page.screenshot({ path: `${OUT}/06-missions.png` });
+await page.keyboard.press("Escape");
+await page.waitForTimeout(400);
+
+// A crossing, to see the traffic and the lights. Only pavements and crossings
+// are walkable now, so a teleport into the carriageway is snapped to the kerb.
+await page.evaluate(() => window.__world.goTo(24.5, 9.9));
 await page.waitForTimeout(1200);
-await page.screenshot({ path: `${OUT}/06-junction.png` });
+await page.screenshot({ path: `${OUT}/07-junction.png` });
 
 // After dark: street lamps, headlights and every window in the city.
 await page.evaluate(() => window.__world.setHour(21.5));
 await page.waitForTimeout(1200);
-await page.screenshot({ path: `${OUT}/07-night.png` });
+await page.screenshot({ path: `${OUT}/08-night.png` });
 await page.evaluate(() => window.__world.setHour(9));
 await page.waitForTimeout(600);
 

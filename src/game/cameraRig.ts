@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Input } from "../core/input";
-import { blockedAt, groundHeight, lineBlocked } from "../city/ground";
+import { blockedAt, groundHeight, inFoliage, lineBlocked } from "../city/ground";
 
 /**
  * The third-person street camera.
@@ -27,9 +27,9 @@ import { blockedAt, groundHeight, lineBlocked } from "../city/ground";
  * faster than the number says it is.
  */
 
-const MIN_DISTANCE = 2.6;
-const MAX_DISTANCE = 9.5;
-const START_DISTANCE = 5.0;
+const MIN_DISTANCE = 1.9;
+const MAX_DISTANCE = 8.0;
+const START_DISTANCE = 3.8;
 
 const MIN_PITCH = -0.55; // looking up at the towers
 const MAX_PITCH = 1.15; // almost straight down
@@ -38,13 +38,14 @@ const START_PITCH = 0.40;
 /**
  * Height above the character's feet that the camera aims at.
  *
- * Just over the shoulder of a 1.75-tall character, which is what puts them in
+ * Just over the shoulder of a 1.2-tall character, which is what puts them in
  * the lower third of the frame and leaves the street they are walking into
- * filling the rest of it.
+ * filling the rest of it. It moves with the character's height: aim at the old
+ * 1.38 and a smaller character sinks out of the bottom of the shot.
  */
-const EYE_HEIGHT = 1.38;
+const EYE_HEIGHT = 1.0;
 /** Sideways offset of the boom, so the character does not block the middle. */
-const SHOULDER = 0.55;
+const SHOULDER = 0.4;
 
 /** Radians per pixel of mouse movement while the pointer is locked. */
 const MOUSE_SENSITIVITY = 0.0026;
@@ -59,12 +60,24 @@ const SPRINT_FOV = 65;
  *
  * Distances are fractions of the boom the trace already allowed; pitches are
  * radians added to whatever the player has aimed. Staying far and level is
- * always preferred, and the last rung — a quarter of the boom, looking almost
- * straight down — is the shot that is guaranteed to exist, because it is
- * standing on the character's own head.
+ * always preferred — and the ladder only climbs a little, because on a
+ * one-tile pavement your back is against a shopfront most of the time, and a
+ * ladder that answered that with "look straight down at their head" spent the
+ * whole game up there.
  */
-const DISTANCE_STEPS = [1, 0.72, 0.5, 0.32, 0.18] as const;
-const PITCH_STEPS = [0, 0.25, 0.5, 0.75] as const;
+const DISTANCE_STEPS = [1, 0.78, 0.58, 0.42, 0.28] as const;
+const PITCH_STEPS = [0, 0.16, 0.34] as const;
+/**
+ * The shots of last resort, in absolute units rather than fractions.
+ *
+ * Reached when the first pass finds nowhere with clear air — most often inside
+ * a park, where every point in the world is inside somebody's canopy. The
+ * answer there is to come in close: a camera a metre behind the shoulder with
+ * trunks sliding past it reads as walking through a wood, where the same
+ * camera three metres back reads as a screen full of leaves with the character
+ * lost somewhere behind them.
+ */
+const TIGHT_STEPS: readonly number[] = [0.95, 0.75, 0.58, 0.42];
 
 /** How hard the fallback camera swings back behind the player, per second. */
 const FOLLOW_RATE = 2.4;
@@ -153,8 +166,23 @@ export class CameraRig {
     const cos = Math.cos(this.yaw);
     // The boom is offset towards the character's right shoulder, which is what
     // keeps them out of the middle of the frame without turning the camera.
-    const eyeX = this.focus.x + cos * SHOULDER;
-    const eyeZ = this.focus.z - sin * SHOULDER;
+    //
+    // On a pavement one tile wide it has to be willing to swap sides. The boom
+    // is traced with a radius of its own, so an offset that lands even a
+    // fraction inside a shopfront makes *every* distance behind you read as
+    // blocked, and the camera spent the whole game jammed against the
+    // character's ear. So: right shoulder, then left, then straight behind.
+    let eyeX = this.focus.x;
+    let eyeZ = this.focus.z;
+    for (const side of [1, -1]) {
+      const x = this.focus.x + cos * SHOULDER * side;
+      const z = this.focus.z - sin * SHOULDER * side;
+      if (!blockedAt(x, this.focus.y, z, SHOULDER + 0.05)) {
+        eyeX = x;
+        eyeZ = z;
+        break;
+      }
+    }
 
     const wanted = this.distance * (sprinting ? 1.12 : 1);
     const clear = this.clearDistance(eyeX, this.focus.y, eyeZ, sin, cos, wanted);
@@ -169,21 +197,34 @@ export class CameraRig {
     // to a tight over-the-head shot when the city really has left nowhere to
     // stand. Being inside a wall for even one frame shows the player the
     // inside of a building, and that is the one thing not to allow.
+    //
+    // The search runs in two passes. The first wants clear air — no wall and
+    // no canopy — at the boom the player asked for. The second gives up on the
+    // canopy and comes in close instead, because a wall is never negotiable
+    // and a leaf is: inside a park every point in the world is inside a tree,
+    // and the only shot that shows you the character there is a near one.
     let pitch = this.pitch;
-    let distance = this.currentDistance;
+    let distance = TIGHT_STEPS[TIGHT_STEPS.length - 1];
     search: for (const scale of DISTANCE_STEPS) {
       for (const lift of PITCH_STEPS) {
         const p = Math.min(MAX_PITCH, this.pitch + lift);
         const d = this.currentDistance * scale;
-        if (this.isClear(eyeX, eyeZ, sin, cos, p, d)) {
+        if (this.isClear(eyeX, eyeZ, sin, cos, p, d, true)) {
           pitch = p;
           distance = d;
           break search;
         }
       }
-      // Nothing at any pitch: hug the character and look down over them.
-      pitch = MAX_PITCH;
-      distance = this.currentDistance * DISTANCE_STEPS[DISTANCE_STEPS.length - 1];
+
+      // Nothing on the ladder: fall back to the tight shots, walls only.
+      if (scale === DISTANCE_STEPS[DISTANCE_STEPS.length - 1]) {
+        for (const d of TIGHT_STEPS) {
+          if (this.isClear(eyeX, eyeZ, sin, cos, this.pitch, d, false)) {
+            distance = d;
+            break;
+          }
+        }
+      }
     }
 
     const horizontal = Math.cos(pitch) * distance;
@@ -192,7 +233,7 @@ export class CameraRig {
     const y = this.focus.y + Math.sin(pitch) * distance;
 
     // Never let the lens dip into the pavement.
-    this.camera.position.set(x, Math.max(y, groundHeight(x, z) + 0.45), z);
+    this.camera.position.set(x, Math.max(y, groundHeight(x, z) + 0.35), z);
     this.camera.lookAt(this.focus.x, this.focus.y, this.focus.z);
 
     const fov = sprinting ? SPRINT_FOV : BASE_FOV;
@@ -202,7 +243,7 @@ export class CameraRig {
     }
   }
 
-  /** Would the lens sit outside every building at this pitch and distance? */
+  /** Would the lens sit in open air here? */
   private isClear(
     eyeX: number,
     eyeZ: number,
@@ -210,10 +251,14 @@ export class CameraRig {
     cos: number,
     pitch: number,
     distance: number,
+    avoidFoliage: boolean,
   ): boolean {
     const y = this.focus.y + Math.sin(pitch) * distance;
     const horizontal = Math.cos(pitch) * distance;
-    return !blockedAt(eyeX + sin * horizontal, y, eyeZ + cos * horizontal, 0.3);
+    const x = eyeX + sin * horizontal;
+    const z = eyeZ + cos * horizontal;
+    if (blockedAt(x, y, z, 0.3)) return false;
+    return !avoidFoliage || !inFoliage(x, y, z, 0.15);
   }
 
   /** How far the boom can extend before it would pass through a building. */
@@ -225,6 +270,11 @@ export class CameraRig {
     cos: number,
     wanted: number,
   ): number {
+    // Walls shorten the boom; trees do not. A street tree stands every few
+    // metres along the kerb, so a boom that pulled in for foliage spent a walk
+    // down Main Street snapping in and out — and a branch crossing the shot for
+    // a moment is what a camera under a tree is supposed to look like. What
+    // trees do get a say in is where the lens comes to *rest*; see `isClear`.
     const traced = (distance: number): boolean =>
       lineBlocked(
         eyeX,
@@ -238,11 +288,13 @@ export class CameraRig {
 
     if (!traced(wanted)) return wanted;
 
-    // Binary search rather than stepping: four probes puts the camera within
-    // 6 % of the wall, and the whole thing costs a couple of dozen box tests.
-    let lo = MIN_DISTANCE;
+    // Binary search rather than stepping: five probes puts the camera within
+    // 3 % of the wall, and the whole thing costs a couple of dozen box tests.
+    // The floor is the tightest shot there is, not the player's minimum zoom:
+    // a wall is allowed to push the camera closer than the player ever would.
+    let lo = TIGHT_STEPS[TIGHT_STEPS.length - 1];
     let hi = wanted;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const mid = (lo + hi) / 2;
       if (traced(mid)) hi = mid;
       else lo = mid;
@@ -254,6 +306,19 @@ export class CameraRig {
   resetBehind(playerFacing: number): void {
     this.yaw = playerFacing + Math.PI;
     this.pitch = START_PITCH;
+  }
+
+  /**
+   * Put the focus on a point at once instead of easing to it.
+   *
+   * The focus normally lags the character by design, which is what keeps the
+   * picture calm. After a teleport that lag is a long slide across the city
+   * with the camera pointing at where you used to be, so anything that moves
+   * the character discontinuously says so here.
+   */
+  snapTo(target: THREE.Vector3): void {
+    this.focus.set(target.x, target.y + EYE_HEIGHT, target.z);
+    this.started = true;
   }
 }
 
