@@ -19,6 +19,7 @@
 import {
   BLOCK_BOUNDS,
   HROADS,
+  SIDEWALK_W,
   X_BANDS,
   Y_BANDS,
   isRoad,
@@ -65,12 +66,30 @@ type RawBuilding = Omit<Building, 'height' | 'floors'>;
  * Slot placement                                                      *
  * ------------------------------------------------------------------ */
 
-/** Pavement kept clear between a building and the kerb, in tiles. */
-const KERB_GAP = 1.0;
+/**
+ * Pavement kept clear between a building and the kerb, in tiles.
+ *
+ * This *is* the pavement, so it is the same number `layout.ts` calls a
+ * pavement: a shop that encroached on it would leave a stretch of street you
+ * could not walk down, and the pedestrian rules would quietly become a maze.
+ */
+const KERB_GAP = SIDEWALK_W;
 /** Gap between neighbouring shopfronts. */
-const SHOP_GAP = 0.2;
+const SHOP_GAP = 0.3;
 /** Default depth of a shop, front to back. */
-const SHOP_D = 2.4;
+const SHOP_D = 3.2;
+
+/**
+ * How much bigger every place is than the plot it was originally drawn for.
+ *
+ * The city was authored around a character half again as tall as the one that
+ * walks it now, and around a four-tile street. Against a proper pavement the
+ * shops read as sheds, so every shell is grown by a third — which is a change
+ * to the *height* the model is fitted to, not to the frontage: the frontage is
+ * gameplay, because it is what a place's door and its neighbours are measured
+ * from.
+ */
+export const BUILDING_SCALE = 1.35;
 
 /**
  * Footprint of slot `i` of `n` inside band cell (`xb`, `yb`).
@@ -96,7 +115,10 @@ function footprint(
   const w = (x1 - x0 - SHOP_GAP * (n - 1)) / n;
   return {
     x: x0 + i * (w + SHOP_GAP),
-    y: side === 'up' ? Y.a + KERB_GAP : Y.b - depth,
+    // Both sides are inset by a full pavement. The south-facing row used to be
+    // pushed flush to the last land row, which only left a pavement in front of
+    // it because the pavement was one tile wide and the band ended there.
+    y: side === 'up' ? Y.a + KERB_GAP : Y.b + 1 - KERB_GAP - depth,
     w,
     h: depth,
   };
@@ -137,7 +159,7 @@ function B(
  * ------------------------------------------------------------------ */
 
 /** Depth of the deeper shops on the north side of Main Street. */
-const MAIN_D = 2.6;
+const MAIN_D = 3.4;
 
 const RAW: RawBuilding[] = [
   /* ── North side of Main Street (face down) ── */
@@ -265,12 +287,12 @@ function deriveHeight(b: RawBuilding, rand: () => number): { height: number; flo
   const area = b.w * b.h;
   if (LOW_PROFILE.test(b.type)) {
     const floors = area > 20 ? 2 : 3;
-    return { height: heightOf(floors), floors };
+    return { height: heightOf(floors) * BUILDING_SCALE, floors };
   }
   // Narrow Main-Street shops become the tall thin townhouses of the skyline.
   const base = b.w < 3 ? 3 : 2;
   const floors = base + Math.floor(rand() * 3);
-  return { height: heightOf(floors), floors };
+  return { height: heightOf(floors) * BUILDING_SCALE, floors };
 }
 
 export const BUILDINGS: Building[] = (() => {

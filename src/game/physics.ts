@@ -85,6 +85,12 @@ export class CharacterBody {
   /** 1 = walking, >1 = sprinting. Set from the input every frame. */
   boost = 1;
 
+  /**
+   * Anything in the way that moves, and so cannot be baked into the city: the
+   * other people on the pavement. Set by whoever owns the crowd.
+   */
+  crowd: ((x: number, z: number) => boolean) | null = null;
+
   private accumulator = 0;
   private coyote = 0;
   private jumpBuffer = 0;
@@ -166,6 +172,7 @@ export class CharacterBody {
       this.position.x + this.velocity.x,
       this.position.z + this.velocity.z,
       this.move,
+      this.crowd ?? undefined,
     );
     if (this.move.hitX) this.velocity.x = 0;
     if (this.move.hitZ) this.velocity.z = 0;

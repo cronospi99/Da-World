@@ -31,6 +31,8 @@ export interface Environment {
   apply(sample: SkySample): void;
   /** Per-frame: keeps the dome, the stars and the shadow box on the player. */
   follow(elapsed: number, target: THREE.Vector3): void;
+  /** Resize the sun's shadow map when the quality tier changes. */
+  setShadowQuality(size: number, radius: number): void;
 }
 
 /* ------------------------------------------------------------------ *
@@ -248,6 +250,9 @@ export function createEnvironment(
   sun.shadow.normalBias = 0.05;
   sun.shadow.bias = -0.0005;
   sun.shadow.radius = 2;
+  // A tight frustum is worth more than a big map: the same texels spread over
+  // one block instead of the whole city is the difference between a shadow with
+  // an edge and a shadow with a staircase.
   // Shadows sit *over* the ambient rather than replacing it, so they stay
   // coloured and never crush to black.
   sun.shadow.intensity = 0.82;
@@ -267,6 +272,16 @@ export function createEnvironment(
   return {
     sun,
     sky,
+
+    setShadowQuality(size: number, radius: number) {
+      sun.castShadow = size > 0;
+      if (size > 0) sun.shadow.mapSize.set(size, size);
+      sun.shadow.radius = radius;
+      // The map is allocated lazily, so throwing the old one away is all it
+      // takes to have the next frame build one at the new size.
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+    },
 
     apply(s: SkySample) {
       skyMaterial.uniforms.uColorSky.value.copy(s.top);

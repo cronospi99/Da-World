@@ -15,6 +15,7 @@
 import {
   type BufferGeometry,
   CanvasTexture,
+  LinearSRGBColorSpace,
   RepeatWrapping,
   SRGBColorSpace,
   type Texture,
@@ -30,12 +31,29 @@ function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   return [cv, cv.getContext('2d')!];
 }
 
+/**
+ * Anisotropy applied to every ground texture.
+ *
+ * A city of nine long straight streets is the worst case there is for texture
+ * filtering: the road recedes to the horizon at a grazing angle, which is
+ * exactly where a bilinear sample turns tarmac into grey soup. The quality
+ * tier sets this before any texture is built.
+ */
+let anisotropy = 8;
+const built: CanvasTexture[] = [];
+
+export function setTextureAnisotropy(value: number): void {
+  anisotropy = value;
+  for (const tex of built) tex.anisotropy = value;
+}
+
 function finish(cv: HTMLCanvasElement): CanvasTexture {
   const tex = new CanvasTexture(cv);
   tex.colorSpace = SRGBColorSpace;
   tex.wrapS = RepeatWrapping;
   tex.wrapT = RepeatWrapping;
-  tex.anisotropy = 8;
+  tex.anisotropy = anisotropy;
+  built.push(tex);
   return tex;
 }
 
@@ -64,9 +82,100 @@ function speckle(
   }
 }
 
-let cache: Record<string, Texture> | null = null;
+/**
+ * A surface, as physically-based rendering wants one.
+ *
+ * The Kenney kits ship flat colour ramps and nothing else — no normal maps, no
+ * roughness maps, nothing that tells the light what a surface is made of. The
+ * procedural ground has always had a detail canvas, though, and that canvas is
+ * a height field in everything but name: the dark speckles in the asphalt are
+ * the gaps between the aggregate, the lines in the paving are the joints
+ * between the slabs.
+ *
+ * So the two maps that matter are derived from it. The normal map is a Sobel
+ * over the same pixels, which makes the aggregate catch the low sun and the
+ * slab joints read as cut rather than drawn. The roughness map is the same
+ * luminance remapped, which is what stops the whole city being uniformly matte:
+ * a polished tyre line down the middle of a lane and a rough kerb beside it.
+ *
+ * None of it is a new asset. It is the detail already in the texture, told to
+ * the lighting model instead of only to the eye.
+ */
+export interface Surface {
+  map: Texture;
+  normalMap: Texture;
+  roughnessMap: Texture;
+  /** How deeply the derived normals are pressed in, per surface. */
+  normalScale: number;
+}
 
-export function textures(): Record<string, Texture> {
+/** Luminance of every texel, 0..1, as the height field the maps are built on. */
+function heightField(cv: HTMLCanvasElement): { data: Float32Array; size: number } {
+  const size = cv.width;
+  const px = cv.getContext('2d')!.getImageData(0, 0, size, size).data;
+  const data = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i++) {
+    data[i] = (px[i * 4] * 0.299 + px[i * 4 + 1] * 0.587 + px[i * 4 + 2] * 0.114) / 255;
+  }
+  return { data, size };
+}
+
+/** Sobel the height field into a tangent-space normal map. */
+function normalFrom(cv: HTMLCanvasElement, strength: number): CanvasTexture {
+  const { data, size } = heightField(cv);
+  const [out, ctx] = canvas(size);
+  const image = ctx.createImageData(size, size);
+  const at = (x: number, y: number): number =>
+    data[((y + size) % size) * size + ((x + size) % size)];
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx =
+        at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1) -
+        (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1));
+      const dy =
+        at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1) -
+        (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1));
+      // The z term keeps the vector unit-length; a bigger strength tips the
+      // normal further off the surface and deepens the relief.
+      const nx = dx * strength;
+      const ny = dy * strength;
+      const length = Math.hypot(nx, ny, 1);
+      const i = (y * size + x) * 4;
+      image.data[i] = ((nx / length) * 0.5 + 0.5) * 255;
+      image.data[i + 1] = ((ny / length) * 0.5 + 0.5) * 255;
+      image.data[i + 2] = ((1 / length) * 0.5 + 0.5) * 255;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const tex = finish(out);
+  // Normals are data, not colour: reading them through sRGB bends every vector.
+  tex.colorSpace = LinearSRGBColorSpace;
+  return tex;
+}
+
+/** Remap the height field into roughness: dark pits rough, bright peaks polished. */
+function roughnessFrom(cv: HTMLCanvasElement, low: number, high: number): CanvasTexture {
+  const { data, size } = heightField(cv);
+  const [out, ctx] = canvas(size);
+  const image = ctx.createImageData(size, size);
+  for (let i = 0; i < data.length; i++) {
+    const value = (low + (high - low) * (1 - data[i])) * 255;
+    image.data[i * 4] = value;
+    image.data[i * 4 + 1] = value;
+    image.data[i * 4 + 2] = value;
+    image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const tex = finish(out);
+  tex.colorSpace = LinearSRGBColorSpace;
+  return tex;
+}
+
+let cache: Record<string, Surface> | null = null;
+
+export function textures(): Record<string, Surface> {
   if (cache) return cache;
   const S = 256;
 
@@ -138,13 +247,29 @@ export function textures(): Record<string, Texture> {
   speckle(leaf, 128, 700, 0.22, true, 91);
   speckle(leaf, 128, 500, 0.2, false, 97);
 
+  /**
+   * Per-surface relief and roughness range.
+   *
+   * Asphalt is the deepest and the roughest — it is loose stone in tar. Paving
+   * is shallower but its joints are sharp. Grass gets almost no relief and no
+   * gloss at all, because a lawn that glints reads as plastic. Glass and metal
+   * are not here: they are kit materials, and they get their finish from the
+   * numbers in `palette.ts`.
+   */
+  const build = (cv: HTMLCanvasElement, relief: number, low: number, high: number): Surface => ({
+    map: finish(cv),
+    normalMap: normalFrom(cv, relief),
+    roughnessMap: roughnessFrom(cv, low, high),
+    normalScale: relief > 0 ? 1 : 0,
+  });
+
   cache = {
-    asphalt: finish(roadCv),
-    paving: finish(paveCv),
-    grass: finish(grassCv),
-    wall: finish(wallCv),
-    roof: finish(roofCv),
-    leaf: finish(leafCv),
+    asphalt: build(roadCv, 2.4, 0.72, 1.0),
+    paving: build(paveCv, 1.9, 0.62, 0.94),
+    grass: build(grassCv, 0.7, 0.88, 1.0),
+    wall: build(wallCv, 1.1, 0.7, 0.95),
+    roof: build(roofCv, 1.6, 0.66, 0.96),
+    leaf: build(leafCv, 0.9, 0.8, 1.0),
   };
   return cache;
 }

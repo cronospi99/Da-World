@@ -22,6 +22,7 @@
 import { HROADS, VROADS, INTERSECTIONS, type Intersection } from "../city/layout";
 import { BUILDINGS, doorOf, relationsOf, type Building } from "../city/buildings";
 import { GRAMMAR_BANK, type GrammarItem, type GrammarTag } from "./grammar";
+import { nearestWalkable } from "../city/ground";
 import { mulberry32, shuffle } from "../core/rng";
 import { NPC_DEFS, type NpcDef, type QuestKind } from "../city/npcData";
 
@@ -291,9 +292,35 @@ export function refreshGrammarQuest(npc: Npc): void {
   npc.quest = grammarQuest(deal(), npc.id, npc.round);
 }
 
-export function buildNpcs(): Npc[] {
+/**
+ * Build the city's citizens for a mode.
+ *
+ * The `kinds` a mode allows are dealt round-robin rather than taken from the
+ * authored data, so every citizen has something to say in every mode: a
+ * directions lesson needs more than the nine people who were written as lost
+ * tourists, and a vocabulary lesson should not walk past them in silence. Who
+ * somebody is — their name, their job, their line of small talk — is authored
+ * and never changes; what they ask you is the mode's business.
+ */
+export function buildNpcs(kinds: readonly QuestKind[] = ["directions", "find", "grammar"]): Npc[] {
   deal = grammarDealer();
-  return NPC_DEFS.map((def, id) => {
+  const allowed = kinds.length ? kinds : (["find"] as const);
+  return NPC_DEFS.map((rawDef, id) => {
+    // The citizens are hand-placed, and the pedestrian rules are derived from
+    // the street grid, so a citizen is snapped onto legal pavement before
+    // anything else happens. It costs nothing when the data is right, and when
+    // a change to the layout moves a street out from under somebody it is the
+    // difference between a citizen you can walk up to and one standing inside
+    // a shop with a quest nobody can reach. The quest is generated from the
+    // snapped position, so what they say stays true of where they are.
+    const spot = nearestWalkable(rawDef.x, rawDef.y);
+    // An authored citizen keeps their own kind when the mode allows it, so a
+    // baker still asks about his own street; everybody else is dealt one.
+    const type = allowed.includes(rawDef.type)
+      ? rawDef.type
+      : allowed[id % allowed.length];
+    const def: NpcDef = { ...rawDef, x: spot.x, y: spot.z, type };
+
     const rand = mulberry32(1000 + id * 77);
     if (def.type === "grammar") {
       return {

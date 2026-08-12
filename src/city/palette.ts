@@ -17,8 +17,8 @@
 import {
   Color,
   MeshStandardMaterial,
+  Vector2,
   type ColorRepresentation,
-  type Texture,
 } from 'three';
 import { textures } from './textures';
 
@@ -197,14 +197,27 @@ export function mat(color: ColorRepresentation, opts: MatOptions = {}): MeshStan
   let m = cache.get(key);
   if (m) return m;
 
+  const surface = opts.map ? textures()[opts.map] : null;
   m = new MeshStandardMaterial({
     color,
     roughness: opts.roughness ?? 0.9,
     metalness: opts.metalness ?? 0,
     flatShading: !!opts.flat,
     vertexColors: !!opts.vertexColors,
-    map: opts.map ? (textures()[opts.map] as Texture) : null,
+    map: surface?.map ?? null,
   });
+  // The detail canvas is a height field as well as a colour, so the same
+  // pixels drive the relief and the finish. This is the whole of the city's
+  // physically-based shading: no authored maps, just the texture that was
+  // already there described to the lighting model properly.
+  //
+  // A surface that sets its own roughness explicitly — glass, chrome, water —
+  // means it, so the derived map only applies where none was asked for.
+  if (surface) {
+    m.normalMap = surface.normalMap;
+    m.normalScale = new Vector2(surface.normalScale, surface.normalScale);
+    if (opts.roughness === undefined) m.roughnessMap = surface.roughnessMap;
+  }
   if (opts.glow) {
     m.emissive = new Color(GLOW_COLOR[opts.glow]);
     m.emissiveIntensity = 0;

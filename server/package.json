@@ -1,0 +1,13 @@
+{
+  "name": "da-world-class-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WebSocket relay so a teacher and up to twelve students share one city.",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

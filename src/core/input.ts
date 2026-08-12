@@ -30,6 +30,8 @@ export class Input {
   private readonly interactHandlers: Array<() => void> = [];
   private readonly cancelHandlers: Array<() => void> = [];
 
+  /** Set while the on-screen stick is being held, so keys do not fight it. */
+  private externalStick = false;
   private stickId: number | null = null;
   private stickOrigin = new THREE.Vector2();
   private lookId: number | null = null;
@@ -99,6 +101,24 @@ export class Input {
     this.cancelHandlers.push(fn);
   }
 
+/**
+   * Drive the walk from an on-screen stick.
+   *
+   * The touch layer owns the widget and its feel; all the controller ever sees
+   * is the same `move` vector the keyboard writes, so nothing downstream knows
+   * or cares which one is being held.
+   */
+  setStick(x: number, y: number): void {
+    this.externalStick = x !== 0 || y !== 0;
+    this.move.set(x, y);
+    if (this.move.lengthSq() > 1) this.move.normalize();
+  }
+
+  /** Jump, from a button rather than a key. */
+  queueJump(): void {
+    if (this.enabled) this.jumpQueued = true;
+  }
+
   /** True once per press. The character controller buffers it from there. */
   consumeJump(): boolean {
     const jump = this.jumpQueued;
@@ -118,7 +138,12 @@ export class Input {
     const x = (this.keys.has("d") ? 1 : 0) - (this.keys.has("a") ? 1 : 0);
     const y = (this.keys.has("w") ? 1 : 0) - (this.keys.has("s") ? 1 : 0);
 
-    if (this.stickId !== null) return; // touch stick wins over keyboard
+    // Either touch stick wins over the keyboard: a finger on the screen is a
+    // deliberate act, and a stuck key should not drag you out from under it.
+    if (this.stickId !== null || this.externalStick) {
+      if (!this.enabled) this.move.set(0, 0);
+      return;
+    }
     this.move.set(x, y);
     if (this.move.lengthSq() > 1) this.move.normalize();
     if (!this.enabled) this.move.set(0, 0);
@@ -161,6 +186,7 @@ export class Input {
     this.keys.clear();
     this.sprint = false;
     this.move.set(0, 0);
+    this.externalStick = false;
     this.stickId = null;
     this.lookId = null;
     this.activePointers.clear();

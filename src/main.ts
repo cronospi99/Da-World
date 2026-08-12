@@ -3,16 +3,20 @@ import "./styles.css";
 
 import { Engine } from "./core/engine";
 import { Input } from "./core/input";
+import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City } from "./city/city";
+import { BODY_RADIUS } from "./city/ground";
 import { DayNight } from "./city/daynight";
 import { streetAt, visitsAt } from "./city/discovery";
 import { KIT_REQUESTS } from "./city/kit";
 import { loadKits } from "./city/kits";
 import { Npcs } from "./city/npcs";
 import { setNightGlow } from "./city/palette";
+import { setTextureAnisotropy } from "./city/textures";
 import { Traffic } from "./city/traffic";
-import { MISSIONS } from "./game/missions";
+import { missionsFor, type Mission } from "./game/missions";
+import { MODES, rememberMode, type GameMode } from "./game/modes";
 import { refreshGrammarQuest, type Npc } from "./game/quests";
 import {
   clearSave,
@@ -26,9 +30,14 @@ import {
   XP_WITH_HINT,
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
-import { CharacterModel } from "./game/characterModel";
 import { Player } from "./game/player";
 import { CityHud } from "./ui/cityHud";
+import { Menu } from "./ui/menu";
+import { TeacherPanel } from "./ui/teacher";
+import { TouchControls, isTouchDevice } from "./ui/touch";
+import { Lobby } from "./ui/lobby";
+import { Classmates } from "./city/classmates";
+import { NetClient } from "./net/client";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -57,7 +66,7 @@ const container = document.querySelector<HTMLElement>("#app");
 if (!container) throw new Error("#app container is missing from the document");
 
 /** Where you wake up: the pavement on the north side of Main Street. */
-const START = new THREE.Vector2(14, 7.5);
+const START = new THREE.Vector2(24, 11.5);
 /**
  * Facing east, along the pavement.
  *
@@ -74,8 +83,15 @@ const setProgress = (fraction: number): void => {
 };
 
 async function boot(): Promise<void> {
-  const engine = new Engine(container!);
+  // The graphics settings are chosen before anything is built, because two of
+  // them — the anisotropy on the ground textures and the size of the sun's
+  // shadow map — are baked into things the city makes at construction time.
+  const quality = detectQuality();
+  setTextureAnisotropy(QUALITY[quality].anisotropy);
+
+  const engine = new Engine(container!, quality);
   const environment = createEnvironment(engine.scene, engine.renderer);
+  environment.setShadowQuality(QUALITY[quality].shadowMap, QUALITY[quality].shadowRadius);
 
   const state = createState();
   loadState(state);
@@ -89,12 +105,26 @@ async function boot(): Promise<void> {
   const traffic = new Traffic();
   engine.scene.add(traffic.group);
 
-  const npcs = new Npcs();
-  npcs.applyProgress(state.helped);
+  // The mode decides what the citizens ask, so the crowd cannot be built until
+  // it is chosen. Everything else — the city, the traffic, the sun — is the
+  // same city whichever mode is played, and is built once behind the splash.
+  let mode: GameMode = MODES.vocabulary;
+  /** True once a mode has been started, so the HUD and controls are live. */
+  let playing = false;
+  let missions: Mission[] = missionsFor(mode);
+  let npcs = new Npcs(mode);
   engine.scene.add(npcs.group);
+
+  // Everybody else in the room, when there is a room. Empty and free the rest
+  // of the time — Class mode is the only thing in the game that needs a server.
+  const classmates = new Classmates();
+  engine.scene.add(classmates.group);
 
   const player = new Player(START);
   player.body.facing = START_FACING;
+  // The crowd is solid: you stop against the person you are walking up to
+  // rather than standing inside them while they talk to you.
+  player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
   engine.scene.add(player.object);
 
   const rig = new CameraRig(engine.camera);
@@ -107,7 +137,7 @@ async function boot(): Promise<void> {
   container!.appendChild(ui);
 
   const speech = new Speech();
-  const hud = new CityHud(ui, speech, state, {
+  const hud = new CityHud(ui, speech, state, () => missions, {
     onReset: () => {
       clearSave();
       location.reload();
@@ -120,13 +150,13 @@ async function boot(): Promise<void> {
     state.hintTargetId ? BUILDING_BY_ID.get(state.hintTargetId) ?? null : null;
 
   function checkMissions(): void {
-    for (const mission of MISSIONS) {
+    for (const mission of missions) {
       if (!state.missionsDone.has(mission.id) && mission.get(state) >= mission.goal) {
         state.missionsDone.add(mission.id);
         hud.showToast(mission.icon, "Mission complete!", mission.label);
       }
     }
-    if (!state.champion && state.missionsDone.size === MISSIONS.length) {
+    if (!state.champion && missions.every((m) => state.missionsDone.has(m.id))) {
       state.champion = true;
       hud.showToast("👑", "City champion!", "Every mission in Da World is done.");
     }
@@ -175,6 +205,7 @@ async function boot(): Promise<void> {
       refreshGrammarQuest(npc);
       checkMissions();
       saveState(state);
+      net.progress(state.score, state.helped.size);
     },
     onWrong() {
       /* The card says what went wrong; nothing else has to happen. */
@@ -187,7 +218,8 @@ async function boot(): Promise<void> {
   });
 
   /** The world only listens while nothing is covering it. */
-  const busy = (): boolean => dialog.open || hud.isBlocking;
+  const busy = (): boolean =>
+    dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen || lobby.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -207,14 +239,18 @@ async function boot(): Promise<void> {
     syncInput();
   }
 
-  input.onInteract(() => {
+  /** The one verb: talk to whoever is in front of you, or resume a card. */
+  function tryTalk(): void {
     if (busy()) return;
     if (dialog.minimized && dialog.current) talk(dialog.current);
     else if (near) talk(near);
-  });
+  }
+
+  input.onInteract(() => tryTalk());
 
   input.onCancel(() => {
     if (dialog.open) dialog.close();
+    else if (teacher.isOpen) teacher.toggle(false);
     else if (hud.closeTop()) return;
     else input.releasePointerLock();
   });
@@ -243,6 +279,10 @@ async function boot(): Promise<void> {
   engine.onUpdate((dt, elapsed) => {
     input.update();
     const paused = busy();
+    // The thumb controls come off the screen whenever a card is over it: they
+    // are drawn above the world, and a stick sitting on top of an answer is
+    // both ugly and, since it still takes the touch, wrong.
+    touch?.setVisible(playing && !paused);
 
     if (!paused) dayNight.advance(dt);
     const sky = dayNight.current();
@@ -257,6 +297,8 @@ async function boot(): Promise<void> {
     environment.follow(elapsed, player.position);
     traffic.update(dt, elapsed, player.position.x, player.position.z);
     npcs.update(dt, elapsed, player.position.x, player.position.z);
+    classmates.update(dt, player.position.x, player.position.z);
+    if (!paused) net.move(player.position.x, player.position.z, player.body.facing);
     city.update(elapsed, hintTarget());
 
     if (!paused) {
@@ -273,6 +315,7 @@ async function boot(): Promise<void> {
 
       near = npcs.nearest(player.position.x, player.position.z);
       hud.setTalkHint(dialog.minimized ? null : near);
+      touch?.setTalkReady(!!near || dialog.minimized);
 
       saveTimer += dt;
       if (saveTimer > 20) {
@@ -291,16 +334,132 @@ async function boot(): Promise<void> {
     input.endFrame();
   });
 
+  /**
+   * Start a mode.
+   *
+   * The city stays; the crowd is rebuilt, because who is standing where is the
+   * same but what they ask is not. Progress is deliberately *not* reset — a
+   * class that switches from Vocabulary to Directions keeps the places it has
+   * walked past and the citizens it has already helped.
+   */
+  function startMode(next: GameMode): void {
+    mode = next;
+    missions = missionsFor(mode);
+    rememberMode(mode.id);
+
+    engine.scene.remove(npcs.group);
+    npcs = new Npcs(mode);
+    npcs.applyProgress(state.helped);
+    engine.scene.add(npcs.group);
+    player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
+    near = null;
+
+    playing = true;
+    menu.hide();
+    hud.setMode(mode);
+    checkMissions();
+    syncInput();
+
+  }
+
+  /* --------------------------- the class -------------------------------- */
+
+  const net = new NetClient({
+    onReady: (_you, peers, goal, netMode) => {
+      lobby.toggle(false);
+      classmates.clear();
+      for (const peer of peers) classmates.add(peer);
+      state.focusMissionId = goal;
+      const chosen = netMode ? MODES[netMode as keyof typeof MODES] : null;
+      startMode(chosen ?? MODES.vocabulary);
+      hud.showToast("👥", "You are in the class", `${peers.length + 1} in the city.`);
+    },
+    onDenied: (reason) => lobby.fail(reason),
+    onJoined: (peer) => {
+      classmates.add(peer);
+      hud.showToast("👋", `${peer.name} joined`, `${classmates.peers().length + 1} in the city.`);
+    },
+    onLeft: (id) => classmates.remove(id),
+    onPositions: (peers) => classmates.setPositions(peers),
+    onProgress: (id, score, helped) => classmates.setProgress(id, score, helped),
+    onGoal: (missionId) => {
+      state.focusMissionId = missionId;
+      hud.refresh();
+      if (missionId) {
+        const mission = missions.find((m) => m.id === missionId);
+        if (mission) hud.showToast("🎯", "New mission from your teacher", mission.label);
+      }
+    },
+    onMode: (modeId) => {
+      const chosen = MODES[modeId as keyof typeof MODES];
+      if (chosen && chosen.id !== mode.id) startMode(chosen);
+    },
+    onClosed: () => {
+      classmates.clear();
+      if (playing) {
+        hud.showToast("🔌", "Disconnected from the class", "The city carries on without them.");
+      }
+    },
+  });
+
+  const lobby = new Lobby(ui, {
+    onJoin: (details) =>
+      net.join({
+        url: details.url,
+        room: details.room,
+        name: details.name,
+        role: details.asTeacher ? "teacher" : "student",
+        passphrase: details.passphrase,
+      }),
+    onCancel: () => menu.show(),
+  });
+
+  // Drawn only where there are thumbs. On a phone held upright the desktop
+  // scheme — invisible stick, tap to jump — is undiscoverable, so the controls
+  // are on the screen where you can see them.
+  const touch = isTouchDevice()
+    ? new TouchControls(ui, input, { onTalk: () => tryTalk() })
+    : null;
+
+  const menu = new Menu(ui, state, quality, {
+    onStart: (chosen) => {
+      // Class mode is the one that needs somewhere to connect to, so it asks
+      // before it starts; everything else walks straight into the city.
+      if (chosen.networked) {
+        menu.hide();
+        lobby.toggle(true);
+        return;
+      }
+      startMode(chosen);
+    },
+    onQuality: (name) => {
+      engine.setQuality(name);
+      environment.setShadowQuality(QUALITY[name].shadowMap, QUALITY[name].shadowRadius);
+      setTextureAnisotropy(QUALITY[name].anisotropy);
+      rememberQuality(name);
+    },
+    onTeacher: () => teacher.toggle(true),
+  });
+
+  const teacher = new TeacherPanel(ui, state, {
+    onSetGoal: (mission) => {
+      state.focusMissionId = mission?.id ?? null;
+      hud.refresh();
+      saveState(state);
+      // In a class the goal is the room's, not this browser's: the server
+      // fans it out and every screen shows the same line.
+      net.setGoal(state.focusMissionId);
+    },
+    onSwitchMode: (chosen) => {
+      teacher.toggle(false);
+      net.setMode(chosen.id);
+      startMode(chosen);
+    },
+    onPause: () => syncInput(),
+  });
+
   engine.start();
   checkMissions();
-
-  // The rigged model arrives after the first frame; until then the primitive
-  // stand-in is on screen, so a slow or missing GLB never blocks play.
-  CharacterModel.load()
-    .then((model) => player.attachModel(model))
-    .catch((error) => {
-      console.warn("Character model failed to load, keeping the stand-in.", error);
-    });
 
   // Handy while working on the city: inspect and teleport from the console.
   (window as unknown as Record<string, unknown>).__world = {
@@ -308,9 +467,18 @@ async function boot(): Promise<void> {
     rig,
     city,
     dayNight,
-    npcs,
     state,
     engine,
+    // A getter, not a value: switching mode rebuilds the crowd, and a captured
+    // reference would quietly hand out the citizens of the previous lesson.
+    get npcs() {
+      return npcs;
+    },
+    get mode() {
+      return mode;
+    },
+    classmates,
+    classmatesGroup: classmates.group,
     goTo: (x: number, z: number, facing = player.body.facing) => {
       player.teleport(x, z);
       player.body.facing = facing;
@@ -352,7 +520,9 @@ async function boot(): Promise<void> {
         hud.showToast(
           "🚸",
           "Welcome to Da World",
-          "Stay on the pavement, cross at the crossings, and press E to talk to anybody with a ❓.",
+          touch
+            ? "Stay on the pavement, cross at the crossings, and tap 💬 to talk to anybody with a ❓."
+            : "Stay on the pavement, cross at the crossings, and press E to talk to anybody with a ❓.",
         ),
       900,
     );

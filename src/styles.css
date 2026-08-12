@@ -946,3 +946,654 @@ canvas.webgl {
     text-align: center;
   }
 }
+
+/* --- main menu -------------------------------------------------------------
+   The front door: mode choice, the mission book and the graphics setting, on
+   one screen because it is read once, standing up, in front of a class.
+   --------------------------------------------------------------------------- */
+
+.menu-screen {
+  position: absolute;
+  inset: 0;
+  visibility: visible;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 28px 20px;
+  overflow-y: auto;
+  background-color: rgba(60, 54, 46, 0.28);
+  pointer-events: auto;
+  transition: opacity 0.4s ease, visibility 0s;
+}
+
+.menu-screen.is-gone {
+  opacity: 0;
+  /* `visibility` and not only `pointer-events`, because `.ui-layer button`
+     re-enables pointer events on every button in the layer — including the
+     mode cards of a menu that has been dismissed, which then went on quietly
+     swallowing every tap in the top half of a phone screen. Visibility takes
+     a subtree out of hit testing outright, and the delay lets the fade finish
+     before it does. */
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s ease, visibility 0s linear 0.4s;
+}
+
+.menu-panel {
+  position: relative;
+  width: 100%;
+  max-width: 860px;
+  padding: 34px 38px 30px;
+  border-radius: 8px;
+  background-color: var(--paper);
+  box-shadow: 9px 9px 0 var(--shadow);
+  animation: card-in 0.4s cubic-bezier(0.34, 1.3, 0.5, 1) both;
+}
+
+.menu-title {
+  margin: 0;
+  font-size: 52px;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  color: var(--ink);
+}
+
+.menu-sub {
+  margin: 10px 0 0;
+  max-width: 60ch;
+  font-size: 19px;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  color: var(--ink-soft);
+}
+
+.menu-section {
+  margin: 28px 0 12px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #bdb4a3;
+}
+
+/* --- mode cards ------------------------------------------------------------ */
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 18px 16px;
+  border: 2px solid #e5d9c0;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+  text-align: left;
+  color: var(--ink);
+  transition: transform 0.16s ease, border-color 0.2s ease,
+    background-color 0.2s ease, box-shadow 0.16s ease;
+}
+
+.mode-card:hover {
+  transform: translate(-1px, -1px);
+  background-color: #fffaee;
+}
+
+.mode-card.is-chosen {
+  border-color: var(--accent);
+  background-color: #fff3e2;
+  box-shadow: 3px 3px 0 var(--accent-deep);
+}
+
+.mode-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.mode-name {
+  font-size: 25px;
+  letter-spacing: -0.03em;
+}
+
+.mode-blurb {
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--ink-soft);
+}
+
+.mode-covers {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #a89f8e;
+}
+
+.mode-note {
+  margin-top: 8px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--accent-deep);
+}
+
+/* --- the mission book ------------------------------------------------------ */
+
+.book-group {
+  border-bottom: 2px dashed #e5d9c0;
+}
+
+.book-group:last-child {
+  border-bottom: none;
+}
+
+.book-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 2px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  text-align: left;
+}
+
+.book-caret {
+  width: 14px;
+  color: var(--ink-soft);
+}
+
+.book-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.book-label {
+  flex: 1 1 auto;
+}
+
+.book-count {
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.book-body {
+  display: none;
+  padding: 0 0 12px 24px;
+}
+
+.book-group.is-open .book-body {
+  display: block;
+}
+
+/* --- chips ----------------------------------------------------------------- */
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-button {
+  padding: 9px 16px;
+  border: 2px solid #e5d9c0;
+  border-radius: 20px;
+  background-color: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.chip-button.is-chosen {
+  border-color: var(--accent);
+  background-color: #fff3e2;
+  color: var(--ink);
+}
+
+.menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.menu-start {
+  font-size: 22px;
+  padding: 14px 32px;
+}
+
+@media (max-width: 1000px) {
+  .menu-panel {
+    padding: 24px 20px 22px;
+  }
+
+  .menu-title {
+    font-size: 40px;
+  }
+
+  .menu-sub {
+    font-size: 17px;
+  }
+}
+
+/* --- teacher panel ---------------------------------------------------------
+   A classroom lock, not security — see the note in src/ui/teacher.ts.
+   --------------------------------------------------------------------------- */
+
+.teacher-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+
+.teacher-input {
+  flex: 1 1 200px;
+  padding: 12px 16px;
+  border: 2px solid #e5d9c0;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 18px;
+}
+
+.teacher-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.teacher-error {
+  min-height: 22px;
+  margin: 0;
+  font-size: 16px;
+  color: var(--bad);
+}
+
+.teacher-head {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #bdb4a3;
+}
+
+.teacher-goal-group {
+  margin-bottom: 14px;
+}
+
+.teacher-goal-head {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--ink-soft);
+}
+
+.teacher-goals .chip-button {
+  font-size: 14px;
+  padding: 7px 13px;
+  text-align: left;
+}
+
+.teacher-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+
+.teacher-table th {
+  padding: 6px 8px;
+  border-bottom: 2px solid #e5d9c0;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-align: left;
+  color: #bdb4a3;
+}
+
+.teacher-table td {
+  padding: 6px 8px;
+  border-bottom: 1px dashed #e5d9c0;
+  color: var(--ink);
+}
+
+.teacher-table th:not(:first-child),
+.teacher-table td:not(:first-child) {
+  width: 5.5em;
+  text-align: right;
+}
+
+/* --- touch controls --------------------------------------------------------
+   Drawn only on touch devices. The stick appears under the thumb rather than
+   the thumb having to find the stick — see src/ui/touch.ts.
+   --------------------------------------------------------------------------- */
+
+.touch-layer {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+.touch-layer.is-on {
+  display: block;
+}
+
+.stick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  height: 46%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.stick-base {
+  position: absolute;
+  left: 24%;
+  top: 62%;
+  width: 124px;
+  height: 124px;
+  margin: -62px 0 0 -62px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 246, 227, 0.55);
+  background-color: rgba(113, 108, 102, 0.22);
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.stick-base.is-held {
+  opacity: 0.95;
+}
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background-color: var(--paper);
+  box-shadow: 3px 3px 0 rgba(113, 108, 102, 0.5);
+  transform: translate(-50%, -50%);
+}
+
+.touch-buttons {
+  position: absolute;
+  right: 22px;
+  bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.touch-button {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  padding: 0;
+  border: 3px solid rgba(255, 246, 227, 0.6);
+  border-radius: 50%;
+  background-color: rgba(250, 242, 226, 0.82);
+  color: var(--ink);
+  font-size: 30px;
+  line-height: 1;
+  pointer-events: auto;
+  touch-action: none;
+  transition: transform 0.12s ease, background-color 0.2s ease;
+}
+
+.touch-button:active {
+  transform: scale(0.93);
+}
+
+.touch-talk {
+  opacity: 0.45;
+  transition: opacity 0.2s ease, transform 0.12s ease, background-color 0.2s ease;
+}
+
+.touch-talk.is-ready {
+  opacity: 1;
+  background-color: #ffe9a8;
+  animation: marker-bob 2.4s ease-in-out infinite;
+}
+
+/* --- portrait phones -------------------------------------------------------
+   The HUD stacks, the cards fill the width, and everything the thumbs need
+   stays in the bottom third where the thumbs are.
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
+  .hud-top-left {
+    top: 12px;
+    left: 14px;
+    max-width: calc(100vw - 90px);
+  }
+
+  .hud-place-name {
+    font-size: 22px;
+  }
+
+  .hud-place-sub {
+    font-size: 13px;
+  }
+
+  .hud-mission {
+    max-width: none;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+
+  .hud-bar {
+    width: 42vw;
+    margin-top: 8px;
+  }
+
+  .hud-bar-label {
+    font-size: 11px;
+  }
+
+  .hud-top-right {
+    top: 12px;
+    right: 14px;
+    gap: 9px;
+  }
+
+  .tile-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  /* The talk prompt sits above the thumb buttons rather than under them. */
+  .hud-hint {
+    bottom: 118px;
+    left: 50%;
+    max-width: 90vw;
+    padding: 9px 14px;
+    font-size: 15px;
+    text-align: center;
+  }
+
+  .resume-pill {
+    bottom: 118px;
+    font-size: 15px;
+  }
+
+  .hud-toast {
+    top: 12px;
+    left: 50%;
+    max-width: 92vw;
+    padding: 10px 16px;
+  }
+
+  .hud-toast strong {
+    font-size: 18px;
+  }
+
+  .hud-toast span {
+    font-size: 14px;
+  }
+
+  /* Cards become sheets: full width, anchored low, thumb-reachable. */
+  .overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .card {
+    max-width: none;
+  }
+
+  .card-shadow {
+    transform: translate(5px, 5px) rotate(0.4deg);
+  }
+
+  .card-body {
+    max-height: 78vh;
+    padding: 22px 18px 18px;
+  }
+
+  .talk-overlay .card-body {
+    max-height: 78vh;
+    padding: 20px 16px 16px;
+  }
+
+  .tile-button.close {
+    top: 12px;
+    right: 12px;
+  }
+
+  .talk-face {
+    width: 50px;
+    height: 50px;
+    font-size: 28px;
+  }
+
+  .talk-name {
+    font-size: 23px;
+  }
+
+  .talk-question {
+    font-size: 18px;
+  }
+
+  .talk-overlay .quiz-option {
+    font-size: 16px;
+    padding: 12px 13px;
+  }
+
+  .quiz-options {
+    grid-template-columns: 1fr;
+  }
+
+  .pill-button {
+    padding: 11px 20px;
+    font-size: 17px;
+  }
+
+  /* The menu is a full-height sheet on a phone, not a floating card. */
+  .menu-screen {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .menu-panel {
+    max-width: none;
+    min-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 20px 16px 28px;
+  }
+
+  .menu-title {
+    font-size: 34px;
+  }
+
+  .menu-sub {
+    font-size: 16px;
+  }
+
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-covers {
+    font-size: 13px;
+  }
+
+  .menu-actions {
+    position: sticky;
+    bottom: 0;
+    margin-top: 22px;
+    padding: 12px 0 4px;
+    background: linear-gradient(to top, var(--paper) 70%, rgba(255, 246, 227, 0));
+  }
+
+  .menu-start {
+    flex: 1 1 auto;
+    font-size: 19px;
+  }
+}
+
+/* --- class lobby ----------------------------------------------------------- */
+
+.lobby-field {
+  margin: 14px 0;
+}
+
+.lobby-field.is-hidden {
+  display: none;
+}
+
+.lobby-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #bdb4a3;
+}
+
+.lobby-field .teacher-input {
+  width: 100%;
+}
+
+.lobby-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  font-size: 18px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.lobby-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.lobby-status {
+  min-height: 24px;
+  margin: 6px 0 0;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.lobby-status.is-bad {
+  color: var(--bad);
+}

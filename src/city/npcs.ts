@@ -1,9 +1,9 @@
 import { CanvasTexture, Group, SRGBColorSpace, Sprite, SpriteMaterial } from "three";
-import { Character } from "./character";
+import { Character, PERSON_HEIGHT, PERSON_SCALE } from "./character";
 import { CURB } from "./city";
 import { walkable } from "./ground";
 import { buildNpcs, type Npc } from "../game/quests";
-import { TARGET_HEIGHT } from "../game/characterModel";
+import type { GameMode } from "../game/modes";
 
 /**
  * The people on the pavement, and the reason to walk up to them.
@@ -25,21 +25,21 @@ import { TARGET_HEIGHT } from "../game/characterModel";
  * They are deliberately not merged: everything here moves.
  */
 
-/**
- * Citizens are scaled to the same height as the player.
- *
- * `Character` is modelled a shade over 1.55 units tall, so this brings a
- * citizen to the player's own 1.2 — which is what stops the crowd reading as
- * a different species from the person walking through it.
- */
-const CITIZEN_NATURAL_HEIGHT = 1.58;
-export const CITIZEN_SCALE = TARGET_HEIGHT / CITIZEN_NATURAL_HEIGHT;
-
 /** Height of the floating marker above a citizen's feet. */
-const MARKER_Y = TARGET_HEIGHT + 0.34;
+const MARKER_Y = PERSON_HEIGHT + 0.34;
 
 /** How close you have to be to start a conversation, in tiles. */
 export const TALK_RANGE = 2.1;
+
+/**
+ * How much room a citizen takes up on the pavement.
+ *
+ * Wide enough that you stop against somebody rather than walking through them,
+ * narrow enough that two people standing near each other still leave a gap you
+ * can get down. It has to be comfortably inside `TALK_RANGE` or you would be
+ * held at arm's length from the person you are trying to speak to.
+ */
+const BODY_RADIUS = 0.34;
 
 /** Past this distance a citizen is not simulated at all. */
 const SIM_RANGE = 60;
@@ -86,11 +86,11 @@ export class Npcs {
   readonly npcs: Npc[];
   private readonly views: NpcView[] = [];
 
-  constructor() {
-    this.npcs = buildNpcs();
+  constructor(mode: GameMode) {
+    this.npcs = buildNpcs(mode.kinds);
     for (const npc of this.npcs) {
       const holder = new Group();
-      const character = new Character(npc, CITIZEN_SCALE);
+      const character = new Character(npc, PERSON_SCALE);
       const marker = markerSprite(false);
       holder.add(character.group, marker);
       // The citizen's own group carries the walk-cycle bob, so the height of
@@ -122,6 +122,23 @@ export class Npcs {
     view.marker.material.dispose();
     view.marker = next;
     view.group.add(next);
+  }
+
+  /**
+   * Is (x, z) inside somebody?
+   *
+   * Handed to the character controller so the player collides with the crowd.
+   * It is a live query rather than a registered obstacle because these obstacles
+   * walk about — see `resolveMove` in `city/ground.ts`.
+   */
+  blocks(x: number, z: number, radius = 0): boolean {
+    for (const view of this.views) {
+      const dx = view.npc.x - x;
+      const dz = view.npc.y - z;
+      const reach = BODY_RADIUS + radius;
+      if (dx * dx + dz * dz < reach * reach) return true;
+    }
+    return false;
   }
 
   /** Closest citizen within talking range, or null. */
@@ -156,7 +173,10 @@ export class Npcs {
         const offset = Math.sin(w) * npc.walk;
         const nx = npc.axis === "v" ? view.home.x : view.home.x + offset;
         const nz = npc.axis === "v" ? view.home.y + offset : view.home.y;
-        if (walkable(nx, nz)) {
+        // A citizen who would walk into the player stops where they are, which
+        // reads as somebody making way and costs nothing when nobody is there.
+        const intoPlayer = (playerX - nx) ** 2 + (playerZ - nz) ** 2 < BODY_RADIUS * 2 * BODY_RADIUS * 2;
+        if (walkable(nx, nz) && !intoPlayer) {
           npc.x = nx;
           npc.y = nz;
           view.group.position.set(npc.x, CURB, npc.y);

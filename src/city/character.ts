@@ -26,6 +26,24 @@ export interface CharacterColors {
   outfit?: Outfit;
 }
 
+/**
+ * How tall a person stands, in world units.
+ *
+ * One tile of the city is about a metre and a half. A shop's ground floor is
+ * 2.3 tall and its door is a shade under two, so a person has to be around 1.2
+ * for a doorway to look like something you walk through rather than duck
+ * under. Everybody in the city is this tall — the player included — because a
+ * crowd the player is visibly a different species from is the fastest way to
+ * make a city read as a diorama.
+ */
+export const PERSON_HEIGHT = 1.2;
+
+/**
+ * The rig above is modelled a shade over 1.58 units tall (the top of the hair,
+ * not the top of a hat), so this is the scale that brings it to `PERSON_HEIGHT`.
+ */
+export const PERSON_SCALE = PERSON_HEIGHT / 1.58;
+
 const geo = {
   torso: new RoundedBoxGeometry(0.52, 0.5, 0.34, 1, 0.1),
   collar: new RoundedBoxGeometry(0.55, 0.09, 0.37, 1, 0.04),
