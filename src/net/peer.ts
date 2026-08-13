@@ -5,6 +5,7 @@ import {
   PROTOCOL,
   type ClientMessage,
   type Peer,
+  type PeerLook,
   type ServerMessage,
 } from "./protocol";
 import { GuestSession, type NetHandlers, type Session } from "./session";
@@ -141,7 +142,9 @@ export interface HostHandlers {
   onJoined(peer: Peer): void;
   onLeft(id: string): void;
   onPositions(peers: Pick<Peer, "id" | "x" | "z" | "facing">[]): void;
-  onProgress(id: string, score: number, helped: number): void;
+  onProgress(id: string, score: number, helped: number, missions: number): void;
+  /** Somebody in the room reached the mission target first. */
+  onWon(id: string, name: string, missions: number): void;
 }
 
 interface HostPeer extends Peer {
@@ -168,9 +171,14 @@ export class PeerHost implements Session {
   code = "";
   goal: string | null = null;
   mode: string | null = null;
+  /** Missions needed to win the match; 0 while nobody is racing. */
+  target = 0;
+  /** Who got there first, if anybody has. */
+  winner: { id: string; name: string } | null = null;
 
   constructor(
     name: string,
+    look: PeerLook,
     private readonly handlers: HostHandlers,
   ) {
     this.peers.set(HOST_ID, {
@@ -182,10 +190,17 @@ export class PeerHost implements Session {
       facing: 0,
       score: 0,
       helped: 0,
+      missions: 0,
+      look,
       connection: null,
     });
     this.boot();
     this.timer = window.setInterval(() => this.tick(), TICK_MS);
+  }
+
+  /** Our own id in our own guest list, as the leaderboard needs it. */
+  get id(): string {
+    return HOST_ID;
   }
 
   /** A host is connected to itself the moment the code exists. */
@@ -280,6 +295,8 @@ export class PeerHost implements Session {
         facing: 0,
         score: 0,
         helped: 0,
+        missions: 0,
+        look: message.look ?? null,
         connection,
       };
 
@@ -290,6 +307,8 @@ export class PeerHost implements Session {
         peers: this.roster(),
         goal: this.goal,
         mode: this.mode,
+        target: this.target,
+        winner: this.winner,
       });
       this.peers.set(peer.id, peer);
       this.broadcast({ t: "joined", peer: publicPeer(peer) }, peer.id);
@@ -310,23 +329,52 @@ export class PeerHost implements Session {
       case "progress":
         existing.score = Number(message.score) || 0;
         existing.helped = Number(message.helped) || 0;
+        existing.missions = Number(message.missions) || 0;
         this.broadcast(
-          { t: "progress", id: existing.id, score: existing.score, helped: existing.helped },
+          {
+            t: "progress",
+            id: existing.id,
+            score: existing.score,
+            helped: existing.helped,
+            missions: existing.missions,
+          },
           existing.id,
         );
-        this.handlers.onProgress(existing.id, existing.score, existing.helped);
+        this.handlers.onProgress(
+          existing.id,
+          existing.score,
+          existing.helped,
+          existing.missions,
+        );
+        this.checkWinner(existing);
         break;
 
-      // Setting the room's mission and mode is the host's, and a student who
-      // edits their own copy of the game still cannot do it: their messages
-      // arrive down a connection this tab knows belongs to a student.
+      // Setting the room's mission, mode and win condition is the host's, and
+      // a student who edits their own copy of the game still cannot do it:
+      // their messages arrive down a connection this tab knows is a student's.
       case "goal":
       case "mode":
+      case "target":
         break;
 
       default:
         break;
     }
+  }
+
+  /**
+   * Has this person just won?
+   *
+   * Decided here rather than in each browser, for the same reason the guest
+   * list is: twelve copies of the game each deciding they won first is twelve
+   * different winners. The host counts, announces once, and the announcement
+   * is what every screen shows.
+   */
+  private checkWinner(peer: HostPeer): void {
+    if (this.winner || this.target <= 0 || peer.missions < this.target) return;
+    this.winner = { id: peer.id, name: peer.name };
+    this.broadcast({ t: "won", id: peer.id, name: peer.name, missions: peer.missions });
+    this.handlers.onWon(peer.id, peer.name, peer.missions);
   }
 
   private drop(connection: DataConnection): void {
@@ -387,12 +435,14 @@ export class PeerHost implements Session {
     me.facing = facing;
   }
 
-  progress(score: number, helped: number): void {
+  progress(score: number, helped: number, missions: number): void {
     const me = this.peers.get(HOST_ID);
     if (!me) return;
     me.score = score;
     me.helped = helped;
-    this.broadcast({ t: "progress", id: HOST_ID, score, helped });
+    me.missions = missions;
+    this.broadcast({ t: "progress", id: HOST_ID, score, helped, missions });
+    this.checkWinner(me);
   }
 
   setGoal(missionId: string | null): void {
@@ -403,6 +453,20 @@ export class PeerHost implements Session {
   setMode(modeId: string): void {
     this.mode = modeId;
     this.broadcast({ t: "mode", modeId });
+  }
+
+  /**
+   * Set the race, and start it again.
+   *
+   * Changing the target clears the winner: a teacher who moves the bar has
+   * started a new match, and leaving the old winner standing would mean the
+   * room could never race twice in one lesson.
+   */
+  setTarget(missions: number): void {
+    this.target = Math.max(0, Math.floor(missions));
+    this.winner = null;
+    this.broadcast({ t: "target", missions: this.target });
+    for (const peer of this.peers.values()) this.checkWinner(peer);
   }
 
   close(): void {
@@ -436,6 +500,8 @@ const MAX_ATTEMPTS = 6;
 export interface GuestOptions {
   code: string;
   name: string;
+  /** Who the student made themselves before joining. */
+  look: PeerLook;
   /** Progress worth putting in front of somebody waiting: "still trying…". */
   onStatus(text: string): void;
 }
@@ -534,7 +600,9 @@ export class PeerGuest extends GuestSession {
       window.clearTimeout(this.openTimer);
       window.clearTimeout(this.connectTimer);
       this.joined = true;
-      this.deliver(this.joinMessage(this.options.code, this.options.name, "student"));
+      this.deliver(
+        this.joinMessage(this.options.code, this.options.name, "student", this.options.look),
+      );
       this.options.onStatus("Waiting for the host to let you in…");
       this.settle?.resolve();
       this.settle = null;
@@ -604,6 +672,8 @@ const publicPeer = (peer: HostPeer): Peer => ({
   facing: peer.facing,
   score: peer.score,
   helped: peer.helped,
+  missions: peer.missions,
+  look: peer.look,
 });
 
 /**

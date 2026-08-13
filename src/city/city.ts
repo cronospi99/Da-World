@@ -44,6 +44,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
+  CROSSINGS,
   FURNITURE_OFFSET,
   GH,
   GW,
@@ -468,11 +469,13 @@ function buildGround(parent: Group, painter: DecalPainter): void {
     }
   }
 
-  // Stop lines: one on each approach to every junction.
+  // Stop lines: one on each approach to every junction, behind the crossing
+  // rather than across it — cars stop before the zebra, not on it.
+  const STOP_LINE = half + 2.9;
   for (const it of INTERSECTIONS) {
     for (const s of [-1, 1]) {
-      solids.push(quad(half - 0.4, 0.26, it.cx + s * (half / 2 + 0.2), it.cy + s * (half + 1.35), 0.015));
-      solids.push(quad(0.26, half - 0.4, it.cx - s * (half + 1.35), it.cy + s * (half / 2 + 0.2), 0.015));
+      solids.push(quad(half - 0.4, 0.26, it.cx + s * (half / 2 + 0.2), it.cy + s * STOP_LINE, 0.015));
+      solids.push(quad(0.26, half - 0.4, it.cx - s * STOP_LINE, it.cy + s * (half / 2 + 0.2), 0.015));
     }
   }
 
@@ -494,16 +497,31 @@ function buildGround(parent: Group, painter: DecalPainter): void {
   painter.add(solidMesh, 0.5);
   solids.forEach((g) => g.dispose());
 
-  /* ---- zebra crossings ---- */
+  /* ---- zebra crossings ----
+     A real zebra: bars that run kerb to kerb, the way the pedestrian walks,
+     repeated along the road so a driver sees a ladder across their lane.
+
+     What was here before laid every bar at the *same* point on the road and
+     spread them sideways instead, so all eight overlapped into a single long
+     white stripe down the middle of the crossing — which is what you saw from
+     the pavement, and it read as a lane marking rather than a crossing.
+
+     The bars come off the `CROSSINGS` rectangles, which is also what
+     `walkable()` tests, so the paint is the permission. */
   const zebra: BufferGeometry[] = [];
-  const stripes = ROAD_W >= 4 ? 8 : 6;
-  for (const it of INTERSECTIONS) {
-    for (let i = 0; i < stripes; i++) {
-      const o = -half * 0.76 + (i * half * 1.52) / (stripes - 1);
-      zebra.push(quad(0.34, ROAD_W - 0.6, it.cx - half - 0.72, it.cy + o, 0.016));
-      zebra.push(quad(0.34, ROAD_W - 0.6, it.cx + half + 0.72, it.cy + o, 0.016));
-      zebra.push(quad(ROAD_W - 0.6, 0.34, it.cx + o, it.cy - half - 0.72, 0.016));
-      zebra.push(quad(ROAD_W - 0.6, 0.34, it.cx + o, it.cy + half + 0.72, 0.016));
+  /** Bar width along the road, and bar-to-bar pitch. About 50 cm of each. */
+  const BAR = 0.36;
+  const PITCH = 0.65;
+  for (const c of CROSSINGS) {
+    const bars = Math.max(2, Math.floor((c.along * 2) / PITCH));
+    for (let i = 0; i < bars; i++) {
+      // Centred in the band, so an even count is not lopsided.
+      const o = (i - (bars - 1) / 2) * PITCH;
+      zebra.push(
+        c.axis === 'z'
+          ? quad(BAR, c.across * 2, c.cx + o, c.cy, 0.016)
+          : quad(c.across * 2, BAR, c.cx, c.cy + o, 0.016),
+      );
     }
   }
   const zebraMesh = new Mesh(
@@ -1143,14 +1161,12 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
       });
       lampLight(x + ax * LAMP_REACH, z, 3.0);
       solid(x, z, 0.22);
-      // A short bollard row keeps cars off the corner and gives the crossing
-      // a visible edge from above.
-      for (let i = 0; i < 3; i++) {
-        const bx = x - Math.sign(dx) * (0.1 + i * 0.55);
-        const bz = z + Math.sign(dz) * 0.55;
-        box(bags, PALETTE.metal, 0.14, 0.6, 0.14, bx, CURB + 0.3, bz, { ...trim, round: 0.06 });
-        solid(bx, bz, 0.16);
-      }
+      // There used to be a row of three bollards along each corner here. They
+      // gave the crossing a nice edge from above and stood exactly where a
+      // pedestrian has to walk to reach it: on a corner two tiles across, three
+      // posts and a lamp leave a gap you have to aim for, and on a phone you
+      // do not aim, you shove the stick and hope. The lamp stays, on the kerb
+      // line with everything else; the corner is clear.
     }
   }
 

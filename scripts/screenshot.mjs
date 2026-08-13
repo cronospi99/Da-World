@@ -36,7 +36,15 @@ await page.waitForTimeout(2500);
 // The menu is the first thing anybody sees, so it is the first shot.
 await page.screenshot({ path: `${OUT}/00-menu.png` });
 // The main menu leads with Play; the mode list behind it has its own Start.
-await page.locator(".menu-start").first().click();
+//
+// Generous, and `noWaitAfter`, because of what this is running on: a city at
+// full quality on a software rasteriser leaves the main thread busy enough that
+// dispatching one click can take twenty seconds, and Playwright's default
+// budget is thirty. That is the machine, not the game.
+await page
+  .locator(".menu-start")
+  .first()
+  .click({ noWaitAfter: true, timeout: 180_000 });
 await page.waitForTimeout(1200);
 await page.screenshot({ path: `${OUT}/01-start.png` });
 

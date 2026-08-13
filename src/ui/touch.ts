@@ -76,6 +76,11 @@ export class TouchControls {
     const stickZone = el("div", { class: "stick-zone" }, [this.stickBase]);
     this.stickZone = stickZone;
     stickZone.addEventListener("pointerdown", this.onStickDown);
+    // From here on this widget is the only thing that walks: the "left half of
+    // the screen is a stick" fallback in `Input` is for a touch device with no
+    // controls drawn, and having both means the character can be walked from
+    // outside the one control the player can see.
+    input.ownStick();
     window.addEventListener("pointermove", this.onStickMove);
     window.addEventListener("pointerup", this.onStickUp);
     window.addEventListener("pointercancel", this.onStickUp);
@@ -98,7 +103,12 @@ export class TouchControls {
   }
 
   private onStickDown = (event: PointerEvent): void => {
+    // One stick, and only from its own corner. A second finger elsewhere is
+    // the camera's, and a finger that arrives while the stick is held is
+    // ignored rather than allowed to take the walk over from the far side of
+    // the screen.
     if (this.stickId !== null) return;
+    if (!this.inZone(event.clientX, event.clientY)) return;
     event.preventDefault();
     this.stickId = event.pointerId;
     // The stick appears under the thumb rather than the thumb having to find
@@ -137,6 +147,12 @@ export class TouchControls {
     this.stickBase.classList.remove("is-held");
     this.moveKnob(0, 0);
   };
+
+  /** Is this touch inside the corner the stick lives in? */
+  private inZone(x: number, y: number): boolean {
+    const r = this.stickZone.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
 
   private moveKnob(x: number, y: number): void {
     this.stickKnob.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;

@@ -1878,6 +1878,90 @@ canvas.webgl {
   background-color: #fff3e2;
 }
 
+.lobby-character {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+/* --- the leaderboard -------------------------------------------------------
+   A table without a <table>: five columns on a laptop, and on a phone the two
+   right-hand ones fold away rather than squeezing the names into two letters.
+   --------------------------------------------------------------------------- */
+
+.board-banner {
+  margin: 14px 0;
+  padding: 12px 16px;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background-color: #fff3e2;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.board-banner.is-hidden {
+  display: none;
+}
+
+.board-table {
+  margin: 14px 0 4px;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 78px 62px 68px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px;
+  border-bottom: 2px dashed #ece2cc;
+  font-size: 17px;
+}
+
+.board-row.is-head {
+  border-bottom-style: solid;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #bdb4a3;
+}
+
+.board-row.is-you {
+  border-radius: 6px;
+  background-color: #fff3e2;
+}
+
+.board-rank {
+  font-size: 19px;
+  text-align: center;
+}
+
+.board-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.board-row.is-you .board-cell {
+  color: var(--ink);
+}
+
+@media (max-width: 560px) {
+  .board-row {
+    grid-template-columns: 30px 1fr 74px;
+  }
+
+  .board-row > :nth-child(4),
+  .board-row > :nth-child(5) {
+    display: none;
+  }
+}
+
 /* --- the camera ------------------------------------------------------------ */
 
 .tile-button.is-gone {

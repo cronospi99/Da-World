@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { mat } from "../city/palette";
 import { PERSON_HEIGHT } from "../city/character";
 import type { MotionState } from "./physics";
@@ -150,11 +151,27 @@ export class CharacterModel {
     this.play(CLIPS.idle, 0);
   }
 
+  /**
+   * The file, fetched at most once per session.
+   *
+   * A class of twelve can have twelve robots in it, and downloading the same
+   * half-megabyte twelve times over a school wifi is the sort of thing that
+   * makes a lesson start with a wait. It is loaded once and cloned per
+   * character — with `SkeletonUtils`, because a skinned mesh shares its
+   * skeleton with the original under a plain `clone()`, and twelve robots
+   * sharing one skeleton walk in perfect, useless unison.
+   */
+  private static file: Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> | null =
+    null;
+
   static async load(panel: string): Promise<CharacterModel> {
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(MODEL_URL);
+    CharacterModel.file ??= new GLTFLoader().loadAsync(MODEL_URL) as unknown as Promise<{
+      scene: THREE.Group;
+      animations: THREE.AnimationClip[];
+    }>;
+    const gltf = await CharacterModel.file;
     return new CharacterModel(
-      gltf as unknown as { scene: THREE.Group; animations: THREE.AnimationClip[] },
+      { scene: cloneSkinned(gltf.scene) as THREE.Group, animations: gltf.animations },
       panel,
     );
   }

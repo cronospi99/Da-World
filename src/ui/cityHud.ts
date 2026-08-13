@@ -23,6 +23,8 @@ interface HudOptions {
   onRoom: () => void;
   /** Open the character customiser from inside the game. */
   onCharacter: () => void;
+  /** Open the class leaderboard. */
+  onLeaderboard: () => void;
 }
 
 export class CityHud {
@@ -39,6 +41,7 @@ export class CityHud {
   private missionLead!: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
   private readonly roomButton: HTMLButtonElement;
+  private readonly boardButton: HTMLButtonElement;
 
   private toastTimer = 0;
 
@@ -105,7 +108,18 @@ export class CityHud {
     });
     this.roomButton.addEventListener("click", () => this.options.onRoom());
 
+    // Everybody in a room gets the board; only whoever is holding the room
+    // open gets the code button beside it.
+    this.boardButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "The class leaderboard",
+      text: "🏆",
+    });
+    this.boardButton.addEventListener("click", () => this.options.onLeaderboard());
+
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
+      this.boardButton,
       this.roomButton,
       this.soundButton,
       missionButton,
@@ -145,6 +159,11 @@ export class CityHud {
     this.roomButton.classList.toggle("is-gone", label === null);
     this.roomButton.setAttribute("aria-label", label ? `The class — ${label}` : "The class");
     this.roomButton.title = label ?? "";
+  }
+
+  /** Show the leaderboard button, which only means anything in a room. */
+  setLeaderboard(visible: boolean): void {
+    this.boardButton.classList.toggle("is-gone", !visible);
   }
 
   /** The mode being played, shown on the mission panel. */

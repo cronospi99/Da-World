@@ -36,6 +36,8 @@ export interface TeacherHandlers {
   /** Focus the class on one mission. Null clears it. */
   onSetGoal(mission: Mission | null): void;
   onSwitchMode(mode: GameMode): void;
+  /** How many missions win the match. 0 turns the race off. */
+  onSetTarget(missions: number): void;
   onPause(paused: boolean): void;
 }
 
@@ -45,6 +47,9 @@ export class TeacherPanel {
   private readonly body: HTMLElement;
   private readonly report: HTMLElement;
   private readonly goalList: HTMLElement;
+  private readonly targetRow: HTMLElement;
+  /** Missions needed to win, as this panel last set or heard it. */
+  private target = 0;
   private unlocked = false;
 
   constructor(
@@ -94,6 +99,7 @@ export class TeacherPanel {
     ]);
 
     this.goalList = el("div", { class: "teacher-goals" });
+    this.targetRow = el("div", { class: "chip-row" });
     this.report = el("div", { class: "teacher-report" });
     this.body = el("div", { class: "teacher-body" }, [
       el("h3", { class: "teacher-head", text: "Mode" }),
@@ -110,6 +116,12 @@ export class TeacherPanel {
           return button;
         }),
       ),
+      el("h3", { class: "teacher-head", text: "Win the match" }),
+      el("p", {
+        class: "info-note",
+        text: "How many missions the first student has to finish to win. Everybody sees the count on the leaderboard, and the whole room is told who got there first. Changing the number starts the race again.",
+      }),
+      this.targetRow,
       el("h3", { class: "teacher-head", text: "Set the mission" }),
       el("p", {
         class: "info-note",
@@ -164,12 +176,52 @@ export class TeacherPanel {
     this.handlers.onPause(open);
   }
 
+  /** The room's win condition, as the host or the server has it. */
+  setTarget(missions: number): void {
+    this.target = missions;
+    this.renderTargets();
+  }
+
   private refresh(): void {
     this.lock.style.display = this.unlocked ? "none" : "block";
     this.body.style.display = this.unlocked ? "block" : "none";
     if (!this.unlocked) return;
+    this.renderTargets();
     this.renderGoals();
     this.renderReport();
+  }
+
+  /**
+   * The choices are few and round on purpose.
+   *
+   * A number field would be more flexible and would also be a number field, in
+   * front of a class, on a laptop balanced on a desk. Three, five and eight are
+   * a short lesson, a long one and a double period; "every mission" is the
+   * whole game, and "no race" is the default because most lessons are not one.
+   */
+  private renderTargets(): void {
+    const choices: { label: string; value: number }[] = [
+      { label: "No race", value: 0 },
+      { label: "3 missions", value: 3 },
+      { label: "5 missions", value: 5 },
+      { label: "8 missions", value: 8 },
+      { label: `All ${MISSIONS.length}`, value: MISSIONS.length },
+    ];
+    this.targetRow.replaceChildren(
+      ...choices.map((choice) => {
+        const button = el("button", {
+          class: choice.value === this.target ? "chip-button is-chosen" : "chip-button",
+          type: "button",
+          text: choice.label,
+        });
+        button.addEventListener("click", () => {
+          this.target = choice.value;
+          this.handlers.onSetTarget(choice.value);
+          this.renderTargets();
+        });
+        return button;
+      }),
+    );
   }
 
   /** Every mission, grouped, as a row of one-tap goals. */

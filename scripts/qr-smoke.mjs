@@ -78,8 +78,15 @@ const browser = await chromium.launch({
 });
 
 const errors = [];
-async function tab(url) {
+async function tab(url, appearance) {
   const page = await browser.newPage({ viewport: { width: 720, height: 560 } });
+  // Who this tab is. Set before the game boots, the way the customiser would
+  // have left it — the point being that the *other* tab draws them like this.
+  if (appearance) {
+    await page.addInitScript((look) => {
+      localStorage.setItem("da-world:appearance", JSON.stringify(look));
+    }, appearance);
+  }
   // Two cities on a software rasteriser leave little of the main thread for
   // anything else, and a handshake queued behind a two-second frame looks
   // exactly like a network that is refusing to connect. The lowest graphics
@@ -125,7 +132,14 @@ console.log(`room ${code} open, QR drawn`);
 
 /* --- a student, arriving as if they had scanned it ------------------------ */
 
-const student = await tab(`${BASE}${query}#join=${code}`);
+const student = await tab(`${BASE}${query}#join=${code}`, {
+  kind: "robot",
+  shirt: "#8f5be8",
+  pants: "#3f4a6b",
+  skin: "#d8a273",
+  hair: "#a8462c",
+  outfit: "cap",
+});
 const codeField = student.locator(".lobby-code-input");
 if ((await codeField.inputValue()) !== code) {
   fail("The scanned link did not fill the code in for the student.");
@@ -163,8 +177,44 @@ const roster = await host.locator(".lobby-count").textContent();
 if (!roster?.includes("2 / 12")) fail(`The roster reads "${roster}".`);
 await host.screenshot({ path: `${OUT}/qr-02-roster.png` });
 
+/* --- the student is drawn as the character they chose ---------------------- */
+
+const drawnAs = await host.evaluate(() => {
+  const [peer] = window.__world.classmates.peers();
+  return peer?.look ?? null;
+});
+if (drawnAs?.kind !== "robot" || drawnAs.shirt !== "#8f5be8") {
+  fail(`The host does not have Ana's character: ${JSON.stringify(drawnAs)}`);
+}
+
+/* --- the teacher sets a race, and somebody wins it ------------------------- */
+
+await host.evaluate(() => window.__world.net.setTarget(2));
+await student.waitForFunction(() => window.__world.winTarget?.() === 2, null, { timeout: 20_000 });
+step("race set to 2 missions");
+
+// Straight to the finish: the student reports two missions done, which is what
+// answering enough citizens would have sent, and the host referees.
+await student.evaluate(() => window.__world.net.progress(120, 6, 2));
+await host.waitForFunction(() => window.__world.winner?.()?.name === "Ana", null, {
+  timeout: 20_000,
+});
+await student.waitForFunction(() => window.__world.winner?.()?.name === "Ana", null, {
+  timeout: 20_000,
+});
+step("Ana won");
+
+// The board is open on the winner's screen, and it says so.
+await student.waitForTimeout(800);
+const banner = await student.locator(".board-banner").textContent();
+if (!banner?.includes("won")) fail(`The leaderboard banner reads "${banner}".`);
+const boardRows = await student.locator(".board-row").count();
+if (boardRows !== 3) fail(`The leaderboard has ${boardRows - 1} people on it, expected 2.`);
+await student.screenshot({ path: `${OUT}/qr-03-leaderboard.png` });
+
 /* --- the teacher moves the room to another mode ---------------------------- */
 
+await student.keyboard.press("Escape");
 await host.evaluate(() => window.__world.host?.setMode("directions"));
 await student.waitForFunction(() => window.__world.mode.id === "directions", null, {
   timeout: 15_000,

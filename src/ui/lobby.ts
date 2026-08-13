@@ -33,6 +33,8 @@ export interface ServerDetails {
 }
 
 export interface LobbyHandlers {
+  /** Open the character customiser, from either side of the lobby. */
+  onCharacter(): void;
   /** Open a room in this browser. Resolves once the code exists. */
   onHost(name: string): Promise<void>;
   /** Join somebody else's browser by code. */
@@ -131,6 +133,7 @@ export class Lobby {
           text: `Up to ${MAX_PLAYERS} people walk the same city at the same time. One browser hosts it and everybody else scans a code — no server to install and nothing to set up.`,
         }),
         labelled("Your name", this.hostName),
+        this.characterButton(),
         el("div", { class: "lobby-choices" }, [hostButton, joinButton]),
         serverLink,
       ]),
@@ -256,6 +259,11 @@ export class Lobby {
           }),
       labelled("Code", this.joinCode),
       labelled("Your name", this.joinName),
+      // Students get the customiser here, not only on the main menu: a phone
+      // that arrived by scanning a code never saw the main menu, and walking
+      // into a city of twelve identical people is the moment you want to be
+      // somebody in particular.
+      this.characterButton(),
       this.joinStatus,
       el("div", { class: "lesson-actions" }, [this.joinButton, this.backButton()]),
     );
@@ -357,6 +365,15 @@ export class Lobby {
     // room: the room is the tab, and the tab is still open.
     if (this.hosting) this.handlers.onEnter();
     else this.handlers.onCancel();
+  }
+
+  /** A way into the character customiser from wherever you are joining. */
+  private characterButton(): HTMLElement {
+    const button = el("button", { class: "pill-button ghost lobby-character", type: "button" }, [
+      el("span", { text: "🧍 Your character" }),
+    ]);
+    button.addEventListener("click", () => this.handlers.onCharacter());
+    return button;
   }
 
   private backButton(): HTMLButtonElement {
