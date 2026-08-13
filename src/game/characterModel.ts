@@ -48,6 +48,54 @@ export const TARGET_HEIGHT = PERSON_HEIGHT;
  */
 const FACING_OFFSET = 0;
 
+/**
+ * The vertical extent an object actually draws at, in world units.
+ *
+ * The obvious `new Box3().setFromObject(model)` is wrong for a rigged model,
+ * and wrong in a way that has already shipped once: three.js measures a
+ * `SkinnedMesh` through its bind matrices, which are in the *skeleton's* space.
+ * This rig's armature carries a scale of 100, so the box came back 149 units
+ * tall instead of four and three quarters — and dividing a 1.2-unit target by
+ * that scaled the robot to 0.008, four centimetres of robot standing on the
+ * pavement. It was all there, animating, correctly coloured, and about twelve
+ * pixels tall on a phone. Somebody picked the robot and got a speck.
+ *
+ * So the vertices are asked directly, through `getVertexPosition`, which
+ * applies the skinning the way the renderer does. Every fifth vertex is plenty
+ * for a height, and it happens a handful of times per character.
+ *
+ * Exported because it is the only trustworthy way to ask how tall anything in
+ * this game is drawing — `main.ts` hands it to the smoke test as the invariant
+ * that would have caught the speck before it was deployed.
+ */
+export function drawnBounds(object: THREE.Object3D): { min: number; max: number } {
+  object.updateMatrixWorld(true);
+  const vertex = new THREE.Vector3();
+  let min = Infinity;
+  let max = -Infinity;
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
+    const count = mesh.geometry.attributes.position.count;
+    for (let i = 0; i < count; i += 5) {
+      mesh.getVertexPosition(i, vertex);
+      vertex.applyMatrix4(mesh.matrixWorld);
+      if (vertex.y < min) min = vertex.y;
+      if (vertex.y > max) max = vertex.y;
+    }
+  });
+  return Number.isFinite(min) && max > min ? { min, max } : { min: 0, max: TARGET_HEIGHT };
+}
+
+/**
+ * How far off `TARGET_HEIGHT` the model may draw before it is measured again.
+ *
+ * Two per cent is far tighter than any rig needs and far looser than any of the
+ * ways this has gone wrong: every failure so far has been off by a factor of
+ * thirty or more, never by a few per cent.
+ */
+const HEIGHT_TOLERANCE = 0.02;
+
 /** Game state -> clip name in the GLB. */
 const CLIPS = {
   idle: "Idle",
@@ -77,9 +125,14 @@ const PANEL_MATERIAL = "Main";
 export class CharacterModel {
   readonly object: THREE.Group;
 
+  /**
+   * How tall this body ended up drawing, in world units — `TARGET_HEIGHT`
+   * unless something is wrong, which is the point of keeping it.
+   */
+  readonly drawnHeight: number;
+
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
-  private readonly meshes: THREE.Mesh[] = [];
   private current: THREE.AnimationAction | null = null;
   private currentName = "";
   /** Set while a one-shot clip (jump, wave) owns the character. */
@@ -93,12 +146,40 @@ export class CharacterModel {
     const model = gltf.scene;
 
     // --- scale to the world ----------------------------------------------
-    const box = new THREE.Box3().setFromObject(model);
-    const height = box.max.y - box.min.y;
-    const scale = height > 0 ? TARGET_HEIGHT / height : 1;
-    model.scale.setScalar(scale);
+    // Measured at scale 1 because the scale set from it *replaces* whatever
+    // the file authored on its root node — measure at the authored scale and
+    // the two are in different units, which is its own way to end up with a
+    // speck or a giant.
+    model.scale.setScalar(1);
+    model.position.set(0, 0, 0);
+    let bounds = drawnBounds(model);
+    model.scale.setScalar(TARGET_HEIGHT / (bounds.max - bounds.min));
+
+    // Then measure again, at the scale just chosen, and believe the second
+    // number over the first.
+    //
+    // This costs one more walk over every fifth vertex, once per character, and
+    // it buys the one guarantee worth having here: whatever the file says, the
+    // character that reaches the pavement is the height it was asked to be. A
+    // measurement can be wrong about a rig — that is exactly how the robot
+    // ended up four centimetres tall — but it cannot be wrong about a rig it
+    // has already scaled, because the error is the ratio between the two
+    // answers, and dividing it out is the fix. A model authored in centimetres,
+    // an armature with a scale on it, a clip that animates the root: all of
+    // them land here and all of them come out 1.2 units tall.
+    bounds = drawnBounds(model);
+    const drawn = bounds.max - bounds.min;
+    if (Math.abs(drawn - TARGET_HEIGHT) > TARGET_HEIGHT * HEIGHT_TOLERANCE) {
+      console.warn(
+        `[da-world] the character drew ${drawn.toFixed(3)} units tall, not ${TARGET_HEIGHT}; rescaling.`,
+      );
+      model.scale.multiplyScalar(TARGET_HEIGHT / drawn);
+      bounds = drawnBounds(model);
+    }
+
+    this.drawnHeight = bounds.max - bounds.min;
     // Drop it so its feet sit on the group's origin.
-    model.position.y = -box.min.y * scale;
+    model.position.y = -bounds.min;
 
     // The wrapper carries the facing offset so `object.rotation.y` stays the
     // character's true heading for everything else in the game.
@@ -123,7 +204,6 @@ export class CharacterModel {
       // that vanishes when the elbow leaves the box is worse than a limb drawn
       // one frame too long.
       mesh.frustumCulled = false;
-      this.meshes.push(mesh);
 
       const source = mesh.material as THREE.MeshStandardMaterial;
       if (!converted.has(source)) {
@@ -241,11 +321,15 @@ export class CharacterModel {
     this.mixer.update(dt);
   }
 
-  /** Give up the GPU memory this model holds. */
+  /**
+   * Stop animating and let this instance go.
+   *
+   * Deliberately does *not* dispose any geometry: every robot is a clone
+   * sharing the one file's buffers, so disposing them when a classmate walks
+   * out of the lesson would empty the model for everybody still in it.
+   */
   dispose(): void {
     this.mixer.stopAllAction();
-    for (const mesh of this.meshes) mesh.geometry.dispose();
-    this.meshes.length = 0;
     this.actions.clear();
   }
 }

@@ -134,6 +134,17 @@ export class CharacterPanel {
     if (open) this.refresh();
   }
 
+  /**
+   * Pick a body from outside the panel — the console, and the smoke test that
+   * checks the robot still arrives at the right height.
+   *
+   * It goes through the same path a tap does rather than setting the field, so
+   * the panel and the character in the city cannot disagree about who you are.
+   */
+  wearBody(kind: BodyKind): void {
+    this.set("kind", kind);
+  }
+
   private dismiss(): void {
     this.toggle(false);
     this.handlers.onClose();

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import "./styles.css";
 
 import { Engine } from "./core/engine";
-import { Input } from "./core/input";
+import { Input, isTyping } from "./core/input";
 import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City, TREE_SPOTS } from "./city/city";
@@ -32,7 +32,13 @@ import {
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
-import { loadAppearance, saveAppearance, type Appearance } from "./game/appearance";
+import {
+  loadAppearance,
+  saveAppearance,
+  type Appearance,
+  type BodyKind,
+} from "./game/appearance";
+import { drawnBounds } from "./game/characterModel";
 import { CharacterPanel } from "./ui/character";
 import { Leaderboard, type LeaderRow } from "./ui/leaderboard";
 import { CityHud } from "./ui/cityHud";
@@ -301,6 +307,7 @@ async function boot(): Promise<void> {
     if (dialog.open) dialog.close();
     else if (leaderboard.isOpen) leaderboard.toggle(false);
     else if (character.isOpen) character.toggle(false);
+    else if (lobby.isOpen) lobby.dismiss();
     else if (teacher.isOpen) teacher.toggle(false);
     else if (hud.closeTop()) return;
     else input.releasePointerLock();
@@ -315,6 +322,10 @@ async function boot(): Promise<void> {
   });
 
   addEventListener("keydown", (event) => {
+    // The same rule as the controller's: a shortcut must never fire while
+    // somebody is typing their name. "m" used to open the mission list from
+    // inside the name box.
+    if (isTyping(event.target)) return;
     if (event.key.toLowerCase() === "r" && !busy()) rig.resetBehind(player.body.facing);
     if (event.key.toLowerCase() === "m" && !dialog.open) hud.toggleMissions(!hud.isMissionsOpen);
   });
@@ -683,6 +694,7 @@ async function boot(): Promise<void> {
       if (chosen.networked) {
         menu.hide();
         lobby.open();
+        syncInput();
         return;
       }
       startMode(chosen);
@@ -808,6 +820,24 @@ async function boot(): Promise<void> {
      */
     treesOnPavement: (): number =>
       TREE_SPOTS.filter((t) => isSidewalk(Math.floor(t.x), Math.floor(t.z))).length,
+    /** Put a body on, from the console or the smoke test. */
+    wear: (kind: BodyKind) => character.wearBody(kind),
+    /** True once the robot has downloaded and is the body on screen. */
+    robotReady: (): boolean => player.wearingRobot,
+    /**
+     * How tall the body currently on screen actually draws, in world units.
+     *
+     * The other invariant on this list, and the one that was missing when it
+     * was needed: the robot shipped scaled to 0.008, four centimetres of
+     * character standing on the pavement, and nothing in the build said so
+     * because nothing was asking. It is measured through the vertices rather
+     * than a bounding box for the reason set out in `characterModel.ts` — a
+     * `Box3` around this rig answers 149.
+     */
+    playerHeight: (): number => {
+      const bounds = drawnBounds(player.object);
+      return bounds.max - bounds.min;
+    },
     stats: () => ({ ...engine.renderer.info.render }),
   };
 

@@ -359,7 +359,8 @@ export class Lobby {
     if (!this.joinName.value) this.joinName.focus();
   }
 
-  private dismiss(): void {
+  /** Close the panel the way the ✕ does. Also what Escape calls. */
+  dismiss(): void {
     this.toggle(false);
     // A host closing the panel is going back to their city, not shutting the
     // room: the room is the tab, and the tab is still open.

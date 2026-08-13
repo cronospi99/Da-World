@@ -193,6 +193,15 @@ export class Input {
       for (const fn of this.cancelHandlers) fn();
       return;
     }
+    // Somebody is typing. This listener is on the window, so every key in the
+    // game's vocabulary reached it wherever the caret was — and five of those
+    // keys are letters. `W`, `A`, `S`, `D` and `E` were swallowed before they
+    // reached the field, `space` with them, and `Enter` talked to whoever was
+    // standing nearby instead of submitting; a student typing "Esteban" into
+    // the name box got "tbn" and reasonably concluded that letters were not
+    // allowed. Nothing the world listens for is worth a keystroke aimed at an
+    // input.
+    if (isTyping(event.target)) return;
     if (!this.enabled) return;
     if (key === " ") {
       event.preventDefault();
@@ -307,6 +316,20 @@ export class Input {
 }
 
 const _tap = new THREE.Vector2();
+
+/**
+ * Is this key going into a text field?
+ *
+ * Checked on the event's target rather than `document.activeElement`, which is
+ * the same thing here and cheaper to reason about: the target is where the
+ * character would land.
+ */
+export function isTyping(target: EventTarget | null): boolean {
+  const node = target as HTMLElement | null;
+  if (!node || !node.tagName) return false;
+  const tag = node.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || node.isContentEditable;
+}
 
 function normalizeKey(key: string): string {
   switch (key) {
