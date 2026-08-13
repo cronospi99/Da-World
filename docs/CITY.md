@@ -113,6 +113,14 @@ walk in; the greenery lives where there is room to wander around it. The
 invariant is checked at runtime by `__world.treesOnPavement()`, which must be
 zero.
 
+The same rule caught the café furniture. Parasols and planters used to stand
+half a tile out from the shopfronts, which with the lamp posts on the kerb left
+about one body-width of clear paving between them — a slalom gate exactly where
+somebody is trying to reach a crossing. They are flush to the wall now, part of
+the shopfront rather than of the pavement, and the corner bollards at every
+junction are gone entirely: three posts and a lamp on a corner two tiles across
+is a gap you have to aim for, and on a phone you do not aim.
+
 The painted signage is also the *only* signage. There are no name plates
 floating over the buildings: a plate written for a camera looking down at the
 rooftops is the size of a bus from the pavement, and it covers the shopfront it

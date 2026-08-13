@@ -1269,34 +1269,44 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
     }
   }
 
-  // Café parasols and planters on the pavement in front of the shops, so a
-  // street is never a bare strip of paving. They sit at the ends of a frontage
-  // rather than across the middle of it: the door is in the middle, and a
-  // planter in front of a door is a place you cannot visit.
+  // Café parasols and planters, against the shopfronts.
+  //
+  // They used to stand half a tile out from the wall, which put them in the
+  // middle of the walking lane: a pavement is three tiles wide, the lamp posts
+  // take the tile nearest the kerb, and a parasol at 0.55 out left about one
+  // body-width of clear paving between the two. Squeezing a phone's thumbstick
+  // through that gap, at the exact moment you are trying to reach a crossing,
+  // is not street furniture — it is a slalom gate.
+  //
+  // So they are part of the shopfront now: flush to the wall, out of the lane,
+  // in the strip where a real café puts its tables. They still sit at the ends
+  // of a frontage rather than across the middle of it, because the door is in
+  // the middle and a planter in front of a door is a place you cannot visit.
+  const AGAINST_WALL = 0.3;
   for (const b of BUILDINGS) {
     if (b.landmark || rand() < 0.45) continue;
-    const front = b.face === 'up' ? b.y - 0.55 : b.y + b.h + 0.55;
+    const front = b.face === 'up' ? b.y - AGAINST_WALL : b.y + b.h + AGAINST_WALL;
     const facing = b.face === 'up' ? Math.PI : 0;
     if (rand() < 0.55) {
       const px = b.x + b.w * (rand() < 0.5 ? 0.16 : 0.84);
       props.add(
         'commercial',
         'detail-parasol-' + (rand() < 0.5 ? 'a' : 'b'),
-        { x: px, y: CURB, z: front, rotY: rand() * Math.PI * 2, scale: 2.2 },
+        { x: px, y: CURB, z: front, rotY: rand() * Math.PI * 2, scale: 2.0 },
         { variation: Math.floor(rand() * variationCount('commercial')) },
       );
       // Only the table and its stem: a parasol's canopy is over head height,
       // and being stopped by a shadow is worse than walking through a fringe.
-      solid(px, front, 0.42);
+      solid(px, front, 0.3);
     } else {
       const px = b.x + b.w * (rand() < 0.5 ? 0.14 : 0.86);
       props.add(
         'suburban',
         'planter',
-        { x: px, y: CURB, z: front, rotY: facing, scale: 2.4 },
+        { x: px, y: CURB, z: front, rotY: facing, scale: 2.2 },
         { variation: Math.floor(rand() * variationCount('suburban')) },
       );
-      solid(px, front, 0.4);
+      solid(px, front, 0.3);
     }
   }
 

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import "./styles.css";
 
 import { Engine } from "./core/engine";
-import { Input } from "./core/input";
+import { Input, isTyping } from "./core/input";
 import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
 import { City, TREE_SPOTS } from "./city/city";
@@ -301,6 +301,7 @@ async function boot(): Promise<void> {
     if (dialog.open) dialog.close();
     else if (leaderboard.isOpen) leaderboard.toggle(false);
     else if (character.isOpen) character.toggle(false);
+    else if (lobby.isOpen) lobby.dismiss();
     else if (teacher.isOpen) teacher.toggle(false);
     else if (hud.closeTop()) return;
     else input.releasePointerLock();
@@ -315,6 +316,10 @@ async function boot(): Promise<void> {
   });
 
   addEventListener("keydown", (event) => {
+    // The same rule as the controller's: a shortcut must never fire while
+    // somebody is typing their name. "m" used to open the mission list from
+    // inside the name box.
+    if (isTyping(event.target)) return;
     if (event.key.toLowerCase() === "r" && !busy()) rig.resetBehind(player.body.facing);
     if (event.key.toLowerCase() === "m" && !dialog.open) hud.toggleMissions(!hud.isMissionsOpen);
   });
@@ -683,6 +688,7 @@ async function boot(): Promise<void> {
       if (chosen.networked) {
         menu.hide();
         lobby.open();
+        syncInput();
         return;
       }
       startMode(chosen);

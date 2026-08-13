@@ -33,6 +33,8 @@ export class Player {
 
   private person: Character;
   private robot: CharacterModel | null = null;
+  /** The panel colour the current robot was built with. */
+  private robotPanel = "";
   /** The robot load in flight, so a double tap does not fetch it twice. */
   private robotLoading: Promise<CharacterModel | null> | null = null;
   private appearance: Appearance;
@@ -99,6 +101,16 @@ export class Player {
     this.person = new Character({ ...appearance }, PERSON_SCALE);
 
     if (appearance.kind === "robot") {
+      // A robot already built in the wrong colour is no use: its materials are
+      // shared out of the city's cache, so they cannot be repainted in place
+      // without repainting every lamp post that happens to be the same shade.
+      // Rebuilding is cheap — the file is fetched once and cloned.
+      if (this.robot && this.robotPanel !== appearance.shirt) {
+        this.object.remove(this.robot.object);
+        this.robot.dispose();
+        this.robot = null;
+        this.robotLoading = null;
+      }
       if (this.robot) this.object.add(this.robot.object);
       else {
         this.object.add(this.person.group);
@@ -117,15 +129,24 @@ export class Player {
    * the person is already on screen and the game carries on with it.
    */
   private async wearRobot(): Promise<void> {
+    const panel = this.appearance.shirt;
     if (!this.robotLoading) {
-      this.robotLoading = CharacterModel.load(this.appearance.shirt).catch((error) => {
+      this.robotLoading = CharacterModel.load(panel).catch((error) => {
         console.warn("[da-world] the robot would not load; staying human.", error);
         return null;
       });
     }
-    const robot = await this.robotLoading;
-    if (!robot) return;
+    const loading = this.robotLoading;
+    const robot = await loading;
+    // Somebody changed their mind while this was in the air: a newer load owns
+    // the character now, and this one is thrown away rather than allowed to
+    // land on top of it.
+    if (!robot || this.robotLoading !== loading) {
+      robot?.dispose();
+      return;
+    }
     this.robot = robot;
+    this.robotPanel = panel;
     if (this.appearance.kind !== "robot") return;
     this.object.remove(this.person.group);
     this.object.add(robot.object);

@@ -48,6 +48,41 @@ export const TARGET_HEIGHT = PERSON_HEIGHT;
  */
 const FACING_OFFSET = 0;
 
+/**
+ * How tall the model actually draws, measured through its skin.
+ *
+ * The obvious `new Box3().setFromObject(model)` is wrong for a rigged model,
+ * and wrong in a way that is easy to ship: three.js measures a `SkinnedMesh`
+ * through its bind matrices, and before the model's world matrices are current
+ * it answers in the *skeleton's* space. This rig's armature carries a scale of
+ * 100, so the box came back about 150 units tall instead of four and a half —
+ * and dividing a 1.2-unit target by that scaled the robot down to three
+ * centimetres. It was there, animating, at the player's feet, far too small to
+ * see. Somebody picked the robot and got an invisible character.
+ *
+ * So the vertices are asked directly, through `getVertexPosition`, which
+ * applies the skinning the way the renderer does. Every fifth vertex is plenty
+ * for a height, and it happens once per character.
+ */
+function renderedHeight(model: THREE.Object3D): { min: number; max: number } {
+  model.updateMatrixWorld(true);
+  const vertex = new THREE.Vector3();
+  let min = Infinity;
+  let max = -Infinity;
+  model.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
+    const count = mesh.geometry.attributes.position.count;
+    for (let i = 0; i < count; i += 5) {
+      mesh.getVertexPosition(i, vertex);
+      vertex.applyMatrix4(mesh.matrixWorld);
+      if (vertex.y < min) min = vertex.y;
+      if (vertex.y > max) max = vertex.y;
+    }
+  });
+  return Number.isFinite(min) && max > min ? { min, max } : { min: 0, max: TARGET_HEIGHT };
+}
+
 /** Game state -> clip name in the GLB. */
 const CLIPS = {
   idle: "Idle",
@@ -79,7 +114,6 @@ export class CharacterModel {
 
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
-  private readonly meshes: THREE.Mesh[] = [];
   private current: THREE.AnimationAction | null = null;
   private currentName = "";
   /** Set while a one-shot clip (jump, wave) owns the character. */
@@ -93,12 +127,17 @@ export class CharacterModel {
     const model = gltf.scene;
 
     // --- scale to the world ----------------------------------------------
-    const box = new THREE.Box3().setFromObject(model);
-    const height = box.max.y - box.min.y;
-    const scale = height > 0 ? TARGET_HEIGHT / height : 1;
+    // Measured at scale 1 because the scale set from it *replaces* whatever
+    // the file authored on its root node — measure at the authored scale and
+    // the two are in different units, which is its own way to end up with a
+    // speck or a giant.
+    model.scale.setScalar(1);
+    model.position.set(0, 0, 0);
+    const bounds = renderedHeight(model);
+    const scale = TARGET_HEIGHT / (bounds.max - bounds.min);
     model.scale.setScalar(scale);
     // Drop it so its feet sit on the group's origin.
-    model.position.y = -box.min.y * scale;
+    model.position.y = -bounds.min * scale;
 
     // The wrapper carries the facing offset so `object.rotation.y` stays the
     // character's true heading for everything else in the game.
@@ -123,7 +162,6 @@ export class CharacterModel {
       // that vanishes when the elbow leaves the box is worse than a limb drawn
       // one frame too long.
       mesh.frustumCulled = false;
-      this.meshes.push(mesh);
 
       const source = mesh.material as THREE.MeshStandardMaterial;
       if (!converted.has(source)) {
@@ -241,11 +279,15 @@ export class CharacterModel {
     this.mixer.update(dt);
   }
 
-  /** Give up the GPU memory this model holds. */
+  /**
+   * Stop animating and let this instance go.
+   *
+   * Deliberately does *not* dispose any geometry: every robot is a clone
+   * sharing the one file's buffers, so disposing them when a classmate walks
+   * out of the lesson would empty the model for everybody still in it.
+   */
   dispose(): void {
     this.mixer.stopAllAction();
-    for (const mesh of this.meshes) mesh.geometry.dispose();
-    this.meshes.length = 0;
     this.actions.clear();
   }
 }
