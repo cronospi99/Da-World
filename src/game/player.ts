@@ -76,6 +76,16 @@ export class Player {
     return PERSON_HEIGHT;
   }
 
+  /**
+   * True when the robot has landed and is the body on screen — false while it
+   * is still downloading and the person is standing in for it. The smoke test
+   * waits on this before measuring, so it cannot measure the stand-in and call
+   * the robot the right size.
+   */
+  get wearingRobot(): boolean {
+    return this.robot !== null && this.appearance.kind === "robot";
+  }
+
   teleport(x: number, z: number): void {
     this.body.teleport(x, z);
     this.object.position.copy(this.body.position);
@@ -161,7 +171,7 @@ export class Player {
     this.object.position.copy(this.body.position);
     this.object.rotation.y = this.body.facing;
 
-    const wearingRobot = this.robot !== null && this.appearance.kind === "robot";
+    const wearingRobot = this.wearingRobot;
     const speed01 = this.body.grounded ? Math.min(1, this.body.speed / FULL_STRIDE_SPEED) : 0.25;
 
     if (wearingRobot) {

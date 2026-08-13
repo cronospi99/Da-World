@@ -101,13 +101,63 @@ await page.screenshot({ path: `${OUT}/08-night.png` });
 await page.evaluate(() => window.__world.setHour(9));
 await page.waitForTimeout(600);
 
+// --- both bodies are the size of a person -----------------------------------
+//
+// The check this file did not have when it was needed. The robot went out
+// scaled to 0.008 — four centimetres of correctly animated, correctly coloured
+// character standing at the player's feet, about twelve pixels tall on a phone
+// — and every screenshot above was taken with the person on, so nothing in the
+// build said a word about it.
+//
+// The band is deliberately wide. What is being caught is a character off by a
+// factor of thirty, and a band tight enough to argue about a hat would only
+// ever fail for the wrong reason: a wave puts an arm over the robot's head, a
+// sun hat is legitimately taller than the person wearing it.
+const HEIGHT_MIN = 1.0;
+const HEIGHT_MAX = 1.6;
+const heights = {};
+for (const body of ["human", "robot"]) {
+  await page.evaluate((kind) => window.__world.wear(kind), body);
+  // The robot is a download; the person keeps walking until it lands.
+  await page
+    .waitForFunction(
+      (kind) => window.__world.playerHeight() > 0 && (kind === "human" || window.__world.robotReady()),
+      body,
+      { timeout: 120_000 },
+    )
+    .catch(() => {});
+  await page.waitForTimeout(1500);
+  heights[body] = await page.evaluate(() => window.__world.playerHeight());
+  await page.screenshot({ path: `${OUT}/09-body-${body}.png` });
+}
+await page.evaluate(() => window.__world.wear("human"));
+
+const wrong = Object.entries(heights).filter(
+  ([, h]) => !(h >= HEIGHT_MIN && h <= HEIGHT_MAX),
+);
+
 const stats = await page.evaluate(() => window.__world?.stats() ?? { note: "no debug handle" });
 
 await browser.close();
 
 console.log(`screenshots → ${OUT}`, stats);
+console.log(
+  "character heights:",
+  Object.entries(heights)
+    .map(([body, h]) => `${body} ${h.toFixed(3)}`)
+    .join(", "),
+);
+if (wrong.length) {
+  console.error(
+    "Wrong size:\n" +
+      wrong
+        .map(([body, h]) => `  the ${body} draws ${h.toFixed(3)} units, not ${HEIGHT_MIN}–${HEIGHT_MAX}`)
+        .join("\n"),
+  );
+  process.exit(1);
+}
 if (errors.length) {
   console.error("Console errors:\n" + errors.join("\n"));
   process.exit(1);
 }
-console.log("OK — no console errors");
+console.log("OK — no console errors, both bodies the right size");

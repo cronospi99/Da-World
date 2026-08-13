@@ -32,7 +32,13 @@ import {
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
-import { loadAppearance, saveAppearance, type Appearance } from "./game/appearance";
+import {
+  loadAppearance,
+  saveAppearance,
+  type Appearance,
+  type BodyKind,
+} from "./game/appearance";
+import { drawnBounds } from "./game/characterModel";
 import { CharacterPanel } from "./ui/character";
 import { Leaderboard, type LeaderRow } from "./ui/leaderboard";
 import { CityHud } from "./ui/cityHud";
@@ -814,6 +820,24 @@ async function boot(): Promise<void> {
      */
     treesOnPavement: (): number =>
       TREE_SPOTS.filter((t) => isSidewalk(Math.floor(t.x), Math.floor(t.z))).length,
+    /** Put a body on, from the console or the smoke test. */
+    wear: (kind: BodyKind) => character.wearBody(kind),
+    /** True once the robot has downloaded and is the body on screen. */
+    robotReady: (): boolean => player.wearingRobot,
+    /**
+     * How tall the body currently on screen actually draws, in world units.
+     *
+     * The other invariant on this list, and the one that was missing when it
+     * was needed: the robot shipped scaled to 0.008, four centimetres of
+     * character standing on the pavement, and nothing in the build said so
+     * because nothing was asking. It is measured through the vertices rather
+     * than a bounding box for the reason set out in `characterModel.ts` — a
+     * `Box3` around this rig answers 149.
+     */
+    playerHeight: (): number => {
+      const bounds = drawnBounds(player.object);
+      return bounds.max - bounds.min;
+    },
     stats: () => ({ ...engine.renderer.info.render }),
   };
 

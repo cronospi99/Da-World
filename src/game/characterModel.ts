@@ -49,27 +49,31 @@ export const TARGET_HEIGHT = PERSON_HEIGHT;
 const FACING_OFFSET = 0;
 
 /**
- * How tall the model actually draws, measured through its skin.
+ * The vertical extent an object actually draws at, in world units.
  *
  * The obvious `new Box3().setFromObject(model)` is wrong for a rigged model,
- * and wrong in a way that is easy to ship: three.js measures a `SkinnedMesh`
- * through its bind matrices, and before the model's world matrices are current
- * it answers in the *skeleton's* space. This rig's armature carries a scale of
- * 100, so the box came back about 150 units tall instead of four and a half —
- * and dividing a 1.2-unit target by that scaled the robot down to three
- * centimetres. It was there, animating, at the player's feet, far too small to
- * see. Somebody picked the robot and got an invisible character.
+ * and wrong in a way that has already shipped once: three.js measures a
+ * `SkinnedMesh` through its bind matrices, which are in the *skeleton's* space.
+ * This rig's armature carries a scale of 100, so the box came back 149 units
+ * tall instead of four and three quarters — and dividing a 1.2-unit target by
+ * that scaled the robot to 0.008, four centimetres of robot standing on the
+ * pavement. It was all there, animating, correctly coloured, and about twelve
+ * pixels tall on a phone. Somebody picked the robot and got a speck.
  *
  * So the vertices are asked directly, through `getVertexPosition`, which
  * applies the skinning the way the renderer does. Every fifth vertex is plenty
- * for a height, and it happens once per character.
+ * for a height, and it happens a handful of times per character.
+ *
+ * Exported because it is the only trustworthy way to ask how tall anything in
+ * this game is drawing — `main.ts` hands it to the smoke test as the invariant
+ * that would have caught the speck before it was deployed.
  */
-function renderedHeight(model: THREE.Object3D): { min: number; max: number } {
-  model.updateMatrixWorld(true);
+export function drawnBounds(object: THREE.Object3D): { min: number; max: number } {
+  object.updateMatrixWorld(true);
   const vertex = new THREE.Vector3();
   let min = Infinity;
   let max = -Infinity;
-  model.traverse((child) => {
+  object.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
     const count = mesh.geometry.attributes.position.count;
@@ -82,6 +86,15 @@ function renderedHeight(model: THREE.Object3D): { min: number; max: number } {
   });
   return Number.isFinite(min) && max > min ? { min, max } : { min: 0, max: TARGET_HEIGHT };
 }
+
+/**
+ * How far off `TARGET_HEIGHT` the model may draw before it is measured again.
+ *
+ * Two per cent is far tighter than any rig needs and far looser than any of the
+ * ways this has gone wrong: every failure so far has been off by a factor of
+ * thirty or more, never by a few per cent.
+ */
+const HEIGHT_TOLERANCE = 0.02;
 
 /** Game state -> clip name in the GLB. */
 const CLIPS = {
@@ -112,6 +125,12 @@ const PANEL_MATERIAL = "Main";
 export class CharacterModel {
   readonly object: THREE.Group;
 
+  /**
+   * How tall this body ended up drawing, in world units — `TARGET_HEIGHT`
+   * unless something is wrong, which is the point of keeping it.
+   */
+  readonly drawnHeight: number;
+
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
   private current: THREE.AnimationAction | null = null;
@@ -133,11 +152,34 @@ export class CharacterModel {
     // speck or a giant.
     model.scale.setScalar(1);
     model.position.set(0, 0, 0);
-    const bounds = renderedHeight(model);
-    const scale = TARGET_HEIGHT / (bounds.max - bounds.min);
-    model.scale.setScalar(scale);
+    let bounds = drawnBounds(model);
+    model.scale.setScalar(TARGET_HEIGHT / (bounds.max - bounds.min));
+
+    // Then measure again, at the scale just chosen, and believe the second
+    // number over the first.
+    //
+    // This costs one more walk over every fifth vertex, once per character, and
+    // it buys the one guarantee worth having here: whatever the file says, the
+    // character that reaches the pavement is the height it was asked to be. A
+    // measurement can be wrong about a rig — that is exactly how the robot
+    // ended up four centimetres tall — but it cannot be wrong about a rig it
+    // has already scaled, because the error is the ratio between the two
+    // answers, and dividing it out is the fix. A model authored in centimetres,
+    // an armature with a scale on it, a clip that animates the root: all of
+    // them land here and all of them come out 1.2 units tall.
+    bounds = drawnBounds(model);
+    const drawn = bounds.max - bounds.min;
+    if (Math.abs(drawn - TARGET_HEIGHT) > TARGET_HEIGHT * HEIGHT_TOLERANCE) {
+      console.warn(
+        `[da-world] the character drew ${drawn.toFixed(3)} units tall, not ${TARGET_HEIGHT}; rescaling.`,
+      );
+      model.scale.multiplyScalar(TARGET_HEIGHT / drawn);
+      bounds = drawnBounds(model);
+    }
+
+    this.drawnHeight = bounds.max - bounds.min;
     // Drop it so its feet sit on the group's origin.
-    model.position.y = -bounds.min * scale;
+    model.position.y = -bounds.min;
 
     // The wrapper carries the facing offset so `object.rotation.y` stays the
     // character's true heading for everything else in the game.
