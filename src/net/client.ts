@@ -1,4 +1,4 @@
-import type { ClientMessage, Role } from "./protocol";
+import type { ClientMessage, PeerLook, Role } from "./protocol";
 import { GuestSession, type NetHandlers } from "./session";
 
 /**
@@ -21,6 +21,7 @@ export interface JoinOptions {
   room: string;
   name: string;
   role: Role;
+  look: PeerLook;
   passphrase?: string;
 }
 
@@ -58,7 +59,13 @@ export class NetClient extends GuestSession {
       socket.addEventListener("open", () => {
         socket.send(
           JSON.stringify(
-            this.joinMessage(options.room, options.name, options.role, options.passphrase),
+            this.joinMessage(
+              options.room,
+              options.name,
+              options.role,
+              options.look,
+              options.passphrase,
+            ),
           ),
         );
         resolve();

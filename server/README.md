@@ -41,9 +41,15 @@ cannot work out alone:
 | | |
 | --- | --- |
 | where everybody is | ten times a second, batched into one message per tick |
-| how everybody is doing | score and citizens helped, for the teacher's panel |
+| what everybody looks like | the character they made, so a class of twelve is twelve people |
+| how everybody is doing | score, citizens helped and missions finished, for the leaderboard |
 | the room's mission | set by the teacher, shown at the top of every screen |
 | the room's mode | Vocabulary or Directions, for everybody at once |
+| the race | how many missions win the match, and who got there first |
+
+The last one is the only thing the relay *decides* rather than forwards. Twelve
+browsers each deciding they finished first is twelve winners, so the count is
+compared here, once, and the announcement is what every screen shows.
 
 ## The passphrase
 

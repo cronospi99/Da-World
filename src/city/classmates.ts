@@ -2,6 +2,8 @@ import { CanvasTexture, Group, SRGBColorSpace, Sprite, SpriteMaterial } from "th
 import { Character, PERSON_HEIGHT, PERSON_SCALE } from "./character";
 import { CURB } from "./city";
 import { mulberry32 } from "../core/rng";
+import { CharacterModel } from "../game/characterModel";
+import type { Outfit } from "./npcData";
 import type { Peer } from "../net/protocol";
 
 /**
@@ -14,6 +16,11 @@ import type { Peer } from "../net/protocol";
  * is that the person crossing the road is somebody you know, and a nameless
  * body on the pavement is indistinguishable from a citizen.
  *
+ * Since students choose their character, a classmate is drawn as whoever they
+ * made: their own colours, their own hat, and the rigged robot if that is what
+ * they picked. The colours dealt from a name are still there as the fallback,
+ * for anybody on an older version who joins without saying what they look like.
+ *
  * Positions arrive ten times a second, which is a fifth of a frame rate, so
  * every classmate is eased towards the last thing the server said rather than
  * snapped to it. The alternative is a room full of people teleporting, which
@@ -25,6 +32,16 @@ const SMOOTHING = 9;
 
 /** A classmate is not simulated once they are this far away. */
 const SIM_RANGE = 70;
+
+/** Ground speed the low-poly walk cycle runs at full tilt. */
+const WALK_CYCLE_SPEED = 2.5;
+
+/** Ease an angle towards another the short way round. */
+function turnTowards(from: number, to: number, dt: number): number {
+  let delta = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return from + delta * Math.min(1, 10 * dt);
+}
 
 function nameTag(name: string, teacher: boolean): Sprite {
   const cv = document.createElement("canvas");
@@ -77,7 +94,10 @@ function colours(name: string): { shirt: string; pants: string; skin: string; ha
 
 interface View {
   peer: Peer;
+  /** The low-poly person: worn, or standing in until the robot lands. */
   character: Character;
+  /** The rigged robot, once it has loaded, for classmates who chose one. */
+  robot: CharacterModel | null;
   tag: Sprite;
   group: Group;
   /** Where the server last said they were; the body eases towards it. */
@@ -91,27 +111,48 @@ export class Classmates {
   add(peer: Peer): void {
     if (this.views.has(peer.id)) return;
     const holder = new Group();
+    const look = peer.look;
     const character = new Character(
-      { ...colours(peer.name), outfit: peer.role === "teacher" ? "glasses" : "backpack" },
+      look
+        ? { shirt: look.shirt, pants: look.pants, skin: look.skin, hair: look.hair, outfit: look.outfit as Outfit }
+        : { ...colours(peer.name), outfit: peer.role === "teacher" ? "glasses" : "backpack" },
       PERSON_SCALE,
     );
     const tag = nameTag(peer.name, peer.role === "teacher");
     holder.add(character.group, tag);
     holder.position.set(peer.x, CURB, peer.z);
     this.group.add(holder);
-    this.views.set(peer.id, {
+    const view: View = {
       peer,
       character,
+      robot: null,
       tag,
       group: holder,
       target: { x: peer.x, z: peer.z, facing: peer.facing },
-    });
+    };
+    this.views.set(peer.id, view);
+
+    // The robot arrives late and may never arrive at all; the person it
+    // replaces is already walking around, so nothing has to wait for it.
+    if (look?.kind === "robot") {
+      void CharacterModel.load(look.shirt)
+        .then((robot) => {
+          if (this.views.get(peer.id) !== view) return;
+          view.robot = robot;
+          view.group.remove(view.character.group);
+          view.group.add(robot.object);
+        })
+        .catch(() => {
+          /* they stay a person, which is what they already look like. */
+        });
+    }
   }
 
   remove(id: string): void {
     const view = this.views.get(id);
     if (!view) return;
     this.group.remove(view.group);
+    view.robot?.dispose();
     view.tag.material.map?.dispose();
     view.tag.material.dispose();
     this.views.delete(id);
@@ -126,11 +167,12 @@ export class Classmates {
     return [...this.views.values()].map((v) => v.peer);
   }
 
-  setProgress(id: string, score: number, helped: number): void {
+  setProgress(id: string, score: number, helped: number, missions: number): void {
     const view = this.views.get(id);
     if (!view) return;
     view.peer.score = score;
     view.peer.helped = helped;
+    view.peer.missions = missions;
   }
 
   /** A tick of positions from the server. */
@@ -165,8 +207,19 @@ export class Classmates {
       // target, so somebody standing still stands still and somebody running
       // across a junction runs.
       const speed = Math.hypot(dx, dz) / Math.max(dt, 1e-4);
-      view.character.update(dt, Math.min(1, speed / 5.2));
-      view.character.faceTowards(view.target.facing, dt);
+      if (view.robot) {
+        // A classmate has no physics here — only where they were and where
+        // they are going — so the state is read off that closing speed.
+        view.robot.update(dt, speed > 0.25 ? "run" : "idle", speed);
+        view.robot.object.rotation.y = turnTowards(
+          view.robot.object.rotation.y,
+          view.target.facing,
+          dt,
+        );
+      } else {
+        view.character.update(dt, Math.min(1, speed / WALK_CYCLE_SPEED));
+        view.character.faceTowards(view.target.facing, dt);
+      }
     }
   }
 }

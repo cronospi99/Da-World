@@ -52,7 +52,23 @@ counting you.
 | --- | --- |
 | To host | Class → **Host this world**. Put the code on the board. Keep the tab open — while it is open, it is the server |
 | To join | Scan the code with the phone's own camera app, which opens the game with the code already filled in — or Class → **Scan a code and join** to use the camera from inside the game, or just type the five letters |
-| While playing | 👥 in the corner puts the code and the guest list back on screen for whoever arrives late |
+| Before joining | **Your character** is on the join screen too, so a student who arrived by scanning can be somebody in particular before they walk in. Everybody sees everybody else's choice — colours, hat and all, robot included |
+| While playing | 🏆 opens the leaderboard; 👥 (the host's) puts the code and the guest list back on screen for whoever arrives late |
+
+### Winning a match
+
+The teacher panel sets **how many missions win the match** — no race, 3, 5, 8,
+or all fifteen. Everybody sees the count on their own leaderboard, the first
+person there is announced to the whole room, and changing the number starts the
+race again, so a lesson can run more than one.
+
+Who won is decided by whoever holds the guest list — the hosting browser or the
+class server — and never by the winner's own copy of the game: twelve browsers
+each deciding they were first is twelve winners. It works on one machine too,
+where the only person racing is the one holding it.
+
+The **leaderboard** (🏆) ranks the room on missions first and XP second, marks
+your own row, and updates the moment somebody overtakes you.
 
 What travels between the phones is only what a browser cannot work out alone:
 where everybody is, how they are doing, and what the teacher has asked the room
@@ -94,8 +110,10 @@ cannot tell them apart.
 | Re-centre the camera | `R` |
 
 On a phone the controls are drawn on the screen: a stick that appears under
-your left thumb wherever you put it, a 💬 button that lights up when somebody
-is in range, and a jump button. Aiming is a drag anywhere else, at twice the
+your left thumb wherever you put it **in the bottom-left corner** — and only
+there, so a thumb anywhere else aims the camera instead of quietly walking you
+into a wall — a 💬 button that lights up when somebody is in range, and a jump
+button. Aiming is a drag anywhere else, at twice the
 mouse's radians per pixel — a thumb has about a fifth of a screen to travel
 before it runs out of hand, and at the mouse rate looking behind you took four
 swipes. Held upright, the HUD stacks and the cards become sheets you can reach.
@@ -104,6 +122,13 @@ Walking is a **walk**. It used to top out near nine units a second, which for a
 character 1.2 units tall is seven times their own height every second: you
 overshot the citizen you were walking towards and the shopfronts you are meant
 to be reading went past in a blur. Shift is there for anybody in a hurry.
+
+You may only walk on the pavements, the crossings and the parks. That is a
+language rule before it is a road-safety one: if you could cut diagonally across
+a block, "go straight for two blocks and turn left" would stop being the only
+way to get anywhere, and the directions a citizen gives you would stop meaning
+anything. A crossing is the painted rectangle and nothing wider, so cutting the
+corner of a junction diagonally is not on either.
 
 ## Your character
 
@@ -119,12 +144,6 @@ Menu → **Your character**, before you start or at any time after. Two bodies:
   you pick it; the person stands in until it lands.
 
 The choice is remembered in the browser, so a student picks once.
-
-You may only walk on the pavements, the crossings and the parks. That is a
-language rule before it is a road-safety one: if you could cut diagonally across
-a block, "go straight for two blocks and turn left" would stop being the only
-way to get anywhere, and the directions a citizen gives you would stop meaning
-anything.
 
 ## The game
 

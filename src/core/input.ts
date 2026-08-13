@@ -7,8 +7,10 @@ import * as THREE from "three";
  * zoom, E (or Enter) to interact. Clicking the canvas locks the pointer and
  * hands the mouse to the camera, the way a third-person game expects; Esc
  * releases it and drag-to-look takes over again.
- * Touch: left half of the screen is a virtual stick, right half orbits, pinch
- * zooms, and a quick tap on the right half jumps.
+ * Touch: the drawn stick in the bottom-left corner walks (see `ui/touch.ts`,
+ * which claims it with `ownStick`), a drag anywhere else orbits, pinch zooms,
+ * and a quick tap that did not drag jumps. Where no controls are drawn, the
+ * whole left half of the screen falls back to being an invisible stick.
  */
 export class Input {
   /** x = strafe, y = forward. Length is clamped to 1. */
@@ -44,6 +46,18 @@ export class Input {
 
   /** Set while the on-screen stick is being held, so keys do not fight it. */
   private externalStick = false;
+  /**
+   * True once the touch layer has claimed walking for its own widget.
+   *
+   * Without it there are two sticks on a phone: the drawn one in the bottom
+   * left, and this file's own "anywhere on the left half of the screen is a
+   * stick" fallback. They do not conflict so much as duplicate — a thumb put
+   * down on the top left, over the street name, started the character walking
+   * with no control on screen to explain why, and a second finger anywhere in
+   * that half could take over the walk from the widget. The drawn stick is the
+   * better control, so when it exists it is the only one.
+   */
+  private stickOwned = false;
   private stickId: number | null = null;
   private stickOrigin = new THREE.Vector2();
   private lookId: number | null = null;
@@ -114,7 +128,18 @@ export class Input {
     this.cancelHandlers.push(fn);
   }
 
-/**
+  /**
+   * Hand walking to the on-screen stick, permanently.
+   *
+   * Called by the touch layer at construction. From then on a touch outside
+   * that widget aims the camera and nothing else.
+   */
+  ownStick(): void {
+    this.stickOwned = true;
+    this.stickId = null;
+  }
+
+  /**
    * Drive the walk from an on-screen stick.
    *
    * The touch layer owns the widget and its feel; all the controller ever sees
@@ -215,7 +240,7 @@ export class Input {
     const isTouch = event.pointerType === "touch";
     const leftHalf = event.clientX < window.innerWidth * 0.5;
 
-    if (isTouch && leftHalf && this.stickId === null) {
+    if (isTouch && leftHalf && !this.stickOwned && this.stickId === null) {
       this.stickId = event.pointerId;
       this.stickOrigin.set(event.clientX, event.clientY);
       return;
