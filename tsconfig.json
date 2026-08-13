@@ -7,6 +7,10 @@
     "types": ["vite/client"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    // qrcode-generator is a UMD package whose types are `export =`. The bundler
+    // gives us its real default export at build time; this lets the checker
+    // agree that it is there.
+    "allowSyntheticDefaultImports": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

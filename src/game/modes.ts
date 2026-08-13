@@ -70,9 +70,11 @@ export const MODES: Record<GameModeId, GameMode> = {
     id: "multiplayer",
     name: "Class",
     icon: "👥",
-    blurb: "Up to twelve students and a teacher in one city.",
+    blurb: "Up to twelve people in one city, joined by scanning a code.",
     covers: [
       "everything in both modes",
+      "one browser hosts — nothing to install",
+      "students join by scanning a QR code",
       "the teacher sets the mission for the room",
       "everybody walks the same streets at the same time",
     ],

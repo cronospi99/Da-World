@@ -5,10 +5,11 @@ import { Engine } from "./core/engine";
 import { Input } from "./core/input";
 import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
-import { City } from "./city/city";
+import { City, TREE_SPOTS } from "./city/city";
 import { BODY_RADIUS } from "./city/ground";
 import { DayNight } from "./city/daynight";
 import { streetAt, visitsAt } from "./city/discovery";
+import { isSidewalk } from "./city/layout";
 import { KIT_REQUESTS } from "./city/kit";
 import { loadKits } from "./city/kits";
 import { Npcs } from "./city/npcs";
@@ -31,6 +32,8 @@ import {
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
+import { loadAppearance, saveAppearance, type Appearance } from "./game/appearance";
+import { CharacterPanel } from "./ui/character";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
 import { TeacherPanel } from "./ui/teacher";
@@ -38,6 +41,9 @@ import { TouchControls, isTouchDevice } from "./ui/touch";
 import { Lobby } from "./ui/lobby";
 import { Classmates } from "./city/classmates";
 import { NetClient } from "./net/client";
+import { PeerGuest, PeerHost, clearCodeInUrl, codeInUrl, joinUrl } from "./net/peer";
+import { MAX_PLAYERS } from "./net/protocol";
+import { NO_SESSION, type NetHandlers, type Session } from "./net/session";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -116,11 +122,15 @@ async function boot(): Promise<void> {
   engine.scene.add(npcs.group);
 
   // Everybody else in the room, when there is a room. Empty and free the rest
-  // of the time — Class mode is the only thing in the game that needs a server.
+  // of the time — Class mode is the only mode with anybody else in it.
   const classmates = new Classmates();
   engine.scene.add(classmates.group);
 
-  const player = new Player(START);
+  // Who you are, from the last time you chose. The customiser can change it
+  // while the game is running, so this is only the starting point.
+  const appearance: Appearance = loadAppearance();
+
+  const player = new Player(START, appearance);
   player.body.facing = START_FACING;
   // The crowd is solid: you stop against the person you are walking up to
   // rather than standing inside them while they talk to you.
@@ -143,6 +153,16 @@ async function boot(): Promise<void> {
       location.reload();
     },
     onPause: () => syncInput(),
+    // Shown only while there is a room: it is how a host puts the QR code back
+    // on the board for the student who arrived late.
+    onRoom: () => {
+      lobby.open();
+      syncInput();
+    },
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
+    },
   });
 
   /** The building a hint is pointing at, if any. */
@@ -219,7 +239,12 @@ async function boot(): Promise<void> {
 
   /** The world only listens while nothing is covering it. */
   const busy = (): boolean =>
-    dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen || lobby.isOpen;
+    dialog.open ||
+    hud.isBlocking ||
+    menu.isOpen ||
+    teacher.isOpen ||
+    lobby.isOpen ||
+    character.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -364,7 +389,30 @@ async function boot(): Promise<void> {
 
   /* --------------------------- the class -------------------------------- */
 
-  const net = new NetClient({
+  /**
+   * The room, whoever is holding it.
+   *
+   * Three things can be behind this: nothing at all, which is how the game
+   * spends most of its life; a `PeerHost`, when this browser *is* the server
+   * and the class scanned its code; or a guest session talking to somebody
+   * else's browser or to the node relay. The city below does not know which,
+   * and asks all three the same four things.
+   */
+  let net: Session = NO_SESSION;
+  let host: PeerHost | null = null;
+
+  /** The chip in the corner: which room this is, and how full. */
+  function refreshRoom(): void {
+    if (!net.connected) {
+      hud.setRoom(null);
+      return;
+    }
+    const people = classmates.peers().length + 1;
+    const fullness = `${people}/${MAX_PLAYERS}`;
+    hud.setRoom(host?.code ? `${host.code}  ·  ${fullness}` : fullness);
+  }
+
+  const netHandlers: NetHandlers = {
     onReady: (_you, peers, goal, netMode) => {
       lobby.toggle(false);
       classmates.clear();
@@ -372,14 +420,19 @@ async function boot(): Promise<void> {
       state.focusMissionId = goal;
       const chosen = netMode ? MODES[netMode as keyof typeof MODES] : null;
       startMode(chosen ?? MODES.vocabulary);
+      refreshRoom();
       hud.showToast("👥", "You are in the class", `${peers.length + 1} in the city.`);
     },
     onDenied: (reason) => lobby.fail(reason),
     onJoined: (peer) => {
       classmates.add(peer);
+      refreshRoom();
       hud.showToast("👋", `${peer.name} joined`, `${classmates.peers().length + 1} in the city.`);
     },
-    onLeft: (id) => classmates.remove(id),
+    onLeft: (id) => {
+      classmates.remove(id);
+      refreshRoom();
+    },
     onPositions: (peers) => classmates.setPositions(peers),
     onProgress: (id, score, helped) => classmates.setProgress(id, score, helped),
     onGoal: (missionId) => {
@@ -396,21 +449,91 @@ async function boot(): Promise<void> {
     },
     onClosed: () => {
       classmates.clear();
+      refreshRoom();
       if (playing) {
         hud.showToast("🔌", "Disconnected from the class", "The city carries on without them.");
       }
     },
-  });
+  };
+
+  /** Leave whatever room we are in, quietly. */
+  function leaveRoom(): void {
+    net.close();
+    net = NO_SESSION;
+    host = null;
+    classmates.clear();
+    refreshRoom();
+  }
+
+  /**
+   * Open a room in this browser.
+   *
+   * The host is a player like everybody else and their city starts the moment
+   * the code exists, so they can be walking around it while the class is still
+   * getting their phones out. The mode is set here rather than left to drift:
+   * whoever hosts decides what the room is playing, and everybody who scans in
+   * afterwards is told on arrival.
+   */
+  function openRoom(name: string): Promise<void> {
+    leaveRoom();
+    return new Promise<void>((resolve, reject) => {
+      let opened = false;
+      const created = new PeerHost(name, {
+        onOpen: (code) => {
+          opened = true;
+          lobby.showRoom(code, joinUrl(code));
+          refreshRoom();
+          resolve();
+        },
+        onRoster: (peers) => {
+          lobby.setRoster(peers);
+          refreshRoom();
+        },
+        onError: (reason) => {
+          if (opened) lobby.fail(reason);
+          else reject(new Error(reason));
+        },
+        onJoined: netHandlers.onJoined,
+        onLeft: netHandlers.onLeft,
+        onPositions: netHandlers.onPositions,
+        onProgress: netHandlers.onProgress,
+      });
+      host = created;
+      net = created;
+      // Hosting is the one claim to the teacher's panel that cannot be
+      // borrowed: the room only exists while this tab does.
+      teacher.unlock();
+      startMode(MODES.multiplayer);
+      created.setMode(MODES.multiplayer.id);
+    });
+  }
 
   const lobby = new Lobby(ui, {
-    onJoin: (details) =>
-      net.join({
+    onHost: (name) => openRoom(name),
+    onJoin: (code, name) => {
+      leaveRoom();
+      const guest = new PeerGuest(netHandlers, {
+        code,
+        name,
+        onStatus: (text) => lobby.setStatus(text),
+      });
+      net = guest;
+      return guest.join();
+    },
+    onServerJoin: (details) => {
+      leaveRoom();
+      const client = new NetClient(netHandlers);
+      net = client;
+      return client.join({
         url: details.url,
         room: details.room,
         name: details.name,
         role: details.asTeacher ? "teacher" : "student",
         passphrase: details.passphrase,
-      }),
+      });
+    },
+    onEnter: () => syncInput(),
+    onCloseRoom: () => leaveRoom(),
     onCancel: () => menu.show(),
   });
 
@@ -427,10 +550,14 @@ async function boot(): Promise<void> {
       // before it starts; everything else walks straight into the city.
       if (chosen.networked) {
         menu.hide();
-        lobby.toggle(true);
+        lobby.open();
         return;
       }
       startMode(chosen);
+    },
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
     },
     onQuality: (name) => {
       engine.setQuality(name);
@@ -439,6 +566,16 @@ async function boot(): Promise<void> {
       rememberQuality(name);
     },
     onTeacher: () => teacher.toggle(true),
+  });
+
+  const character = new CharacterPanel(ui, appearance, {
+    // Live: the character in the city changes as the swatches are tapped, which
+    // is the whole reason the panel is worth having over a list of names.
+    onChange: (chosen) => {
+      player.setAppearance(chosen);
+      saveAppearance(chosen);
+    },
+    onClose: () => syncInput(),
   });
 
   const teacher = new TeacherPanel(ui, state, {
@@ -461,6 +598,18 @@ async function boot(): Promise<void> {
   engine.start();
   checkMissions();
 
+  // Arrived by scanning somebody's QR code: skip the menu entirely and ask for
+  // the one thing the code cannot carry, which is who this is. The code is
+  // then wiped from the address bar, so a reload does not silently rejoin a
+  // lesson that finished an hour ago.
+  const scanned = codeInUrl();
+  if (scanned) {
+    menu.hide();
+    lobby.openWithCode(scanned);
+    clearCodeInUrl();
+    syncInput();
+  }
+
   // Handy while working on the city: inspect and teleport from the console.
   (window as unknown as Record<string, unknown>).__world = {
     player,
@@ -479,6 +628,14 @@ async function boot(): Promise<void> {
     },
     classmates,
     classmatesGroup: classmates.group,
+    // The room, for the QR smoke test and for poking at a lesson that is
+    // misbehaving. Getters, because both are replaced when a room changes.
+    get host() {
+      return host;
+    },
+    get net() {
+      return net;
+    },
     goTo: (x: number, z: number, facing = player.body.facing) => {
       player.teleport(x, z);
       player.body.facing = facing;
@@ -496,6 +653,16 @@ async function boot(): Promise<void> {
       return npc.name;
     },
     setHour: (hour: number) => dayNight.setHours(hour),
+    /**
+     * How many trees ended up on a pavement, which must be none.
+     *
+     * The kerbside planting was taken out because a trunk every few paces made
+     * walking down a three-tile pavement a slalom. This is the invariant that
+     * says so out loud, so the next change to the planting rules cannot quietly
+     * put them back.
+     */
+    treesOnPavement: (): number =>
+      TREE_SPOTS.filter((t) => isSidewalk(Math.floor(t.x), Math.floor(t.z))).length,
     stats: () => ({ ...engine.renderer.info.render }),
   };
 

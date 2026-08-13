@@ -15,10 +15,11 @@ npm run dev      # http://localhost:5173
 npm run build    # typecheck + production build into dist/
 npm run preview  # serve the built output on :4173
 npm run smoke    # boots the build in headless Chromium and screenshots it
+npm run smoke:qr # two tabs, one hosting: checks QR mode end to end
 ```
 
-Class mode needs a server; the rest of the game does not. See
-[`server/README.md`](server/README.md).
+Nothing here needs a server, Class mode included: one browser hosts the world
+and everybody else scans its QR code.
 
 ## Modes
 
@@ -26,7 +27,7 @@ Class mode needs a server; the rest of the game does not. See
 | --- | --- |
 | **Vocabulary** | There is / there are, some / any / no, much / many / a lot of, prepositions of place, and the words for a city |
 | **Directions** | Go straight on, turn left, count the blocks, name the street |
-| **Class** | Up to twelve students and one teacher in the same city |
+| **Class** | Up to twelve people in the same city, joined by scanning a code |
 
 A mode is not a different city. It is the same ninety-one places and the same
 thirty-two citizens asking a different kind of question, so a class working on
@@ -36,14 +37,55 @@ the same signs. Switching keeps your progress.
 The **teacher panel** (👩‍🏫 on the menu) sets the mission the whole room is
 working towards, shows first-try accuracy per language point, and exports it as
 CSV. Its passphrase is a classroom lock rather than security — the real one
-lives on the class server, which never sends it to a student's browser.
+lives on the class server, which never sends it to a student's browser. Hosting
+a world opens the panel without it, because a room that only exists while your
+tab does is proof enough that you are the one at the machine.
+
+## Playing together: QR mode
+
+Choose **Class**, tap **Host this world**, and your browser *is* the server. It
+puts a five-letter code and a QR code on the screen; everybody else points a
+phone at it, types their name and walks into the same city. Up to twelve people,
+counting you.
+
+| | |
+| --- | --- |
+| To host | Class → **Host this world**. Put the code on the board. Keep the tab open — while it is open, it is the server |
+| To join | Scan the code with the phone's own camera app, which opens the game with the code already filled in — or Class → **Scan a code and join** to use the camera from inside the game, or just type the five letters |
+| While playing | 👥 in the corner puts the code and the guest list back on screen for whoever arrives late |
+
+What travels between the phones is only what a browser cannot work out alone:
+where everybody is, how they are doing, and what the teacher has asked the room
+to do. The city itself is never sent — every browser builds the same ninety-one
+places from the same tables, so two students standing outside the bakery are
+looking at the same bakery because they derived it, not because it was
+downloaded.
+
+Two browsers find each other through [PeerJS](https://peerjs.com)'s public
+signalling server, which is used for the introduction and then not needed; after
+that the lesson runs directly between the devices, and on one school wifi it
+usually never leaves the building. A school that would rather not depend on that
+introduction can run its own `peerjs-server` and add `?peerhost=host:port` to
+the game's address. Where a phone and a laptop cannot reach each other directly
+— mobile data against a school firewall — the connection falls back to a public
+TURN relay so the student gets in anyway.
+
+In-game scanning uses the browser's own `BarcodeDetector`, which Chrome and Edge
+have and Firefox and Safari do not. Where it is missing the panel says so and
+points at the two things that always work: the phone's camera app and the five
+letters.
+
+The alternative is the WebSocket relay in [`server/`](server/README.md), for a
+school that would rather give out one fixed address that never changes than a
+code that changes every lesson. Both speak the same protocol, and the game
+cannot tell them apart.
 
 ## Controls
 
 | | |
 | --- | --- |
 | Move | `W A S D` / arrow keys, or the left half of a touch screen |
-| Sprint | `Shift` |
+| Sprint | `Shift` — a walk is 2.5 units a second, a run is 5 |
 | Jump | `Space`, or a quick tap on the right half |
 | Look | Click once to take the mouse, then move it. `Esc` gives it back |
 | Zoom | Scroll, or pinch |
@@ -53,8 +95,30 @@ lives on the class server, which never sends it to a student's browser.
 
 On a phone the controls are drawn on the screen: a stick that appears under
 your left thumb wherever you put it, a 💬 button that lights up when somebody
-is in range, and a jump button. Aiming is a drag anywhere else. Held upright,
-the HUD stacks and the cards become sheets you can reach.
+is in range, and a jump button. Aiming is a drag anywhere else, at twice the
+mouse's radians per pixel — a thumb has about a fifth of a screen to travel
+before it runs out of hand, and at the mouse rate looking behind you took four
+swipes. Held upright, the HUD stacks and the cards become sheets you can reach.
+
+Walking is a **walk**. It used to top out near nine units a second, which for a
+character 1.2 units tall is seven times their own height every second: you
+overshot the citizen you were walking towards and the shopfronts you are meant
+to be reading went past in a blur. Shift is there for anybody in a hurry.
+
+## Your character
+
+Menu → **Your character**, before you start or at any time after. Two bodies:
+
+- **A person**, built from the same rig as every citizen — shirt, trousers,
+  skin, hair and one thing to carry, from a small palette that reads at camera
+  distance. In a class of twelve this is how you tell who is who on the
+  pavement.
+- **A robot** — a rigged GLB with a real skeleton, its own walk, run, jump and
+  a wave when you stand still. It is scaled to the same height as everybody
+  else and shaded with the city's own materials, and it is only downloaded if
+  you pick it; the person stands in until it lands.
+
+The choice is remembered in the browser, so a student picks once.
 
 You may only walk on the pavements, the crossings and the parks. That is a
 language rule before it is a road-safety one: if you could cut diagonally across

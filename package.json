@@ -10,13 +10,17 @@
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/screenshot.mjs",
+    "smoke:qr": "node scripts/qr-smoke.mjs",
     "verify": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "peerjs": "^1.5.5",
+    "qrcode-generator": "^2.0.4",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/three": "^0.185.0",
+    "peer": "^1.0.2",
     "playwright": "^1.62.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"

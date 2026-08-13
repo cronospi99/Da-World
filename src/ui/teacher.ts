@@ -143,6 +143,20 @@ export class TeacherPanel {
     return this.root.classList.contains("is-open");
   }
 
+  /**
+   * Open the panel without the passphrase.
+   *
+   * Called when this browser is hosting a world. It is not a hole in the lock:
+   * the room exists only while this tab does, so whoever opened it is standing
+   * at the machine, which is everything the passphrase was ever checking.
+   * Deliberately not remembered — close the tab and the room and the panel go
+   * together.
+   */
+  unlock(): void {
+    this.unlocked = true;
+    this.refresh();
+  }
+
   toggle(open: boolean): void {
     if (open) this.refresh();
     this.root.classList.toggle("is-open", open);

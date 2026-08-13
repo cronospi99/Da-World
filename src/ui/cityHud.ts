@@ -19,6 +19,10 @@ import { closeButton, el } from "./dom";
 interface HudOptions {
   onReset: () => void;
   onPause: (paused: boolean) => void;
+  /** Reopen the class panel — the code, the QR and who is in. */
+  onRoom: () => void;
+  /** Open the character customiser from inside the game. */
+  onCharacter: () => void;
 }
 
 export class CityHud {
@@ -34,6 +38,7 @@ export class CityHud {
   private readonly missionList: HTMLElement;
   private missionLead!: HTMLElement;
   private readonly soundButton: HTMLButtonElement;
+  private readonly roomButton: HTMLButtonElement;
 
   private toastTimer = 0;
 
@@ -90,7 +95,18 @@ export class CityHud {
     });
     infoButton.addEventListener("click", () => this.toggleInfo(true));
 
+    // Hidden until there is a room to show. A host walks off to help somebody
+    // and needs the code back on screen; a student wants to know who is in.
+    this.roomButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "The class",
+      text: "👥",
+    });
+    this.roomButton.addEventListener("click", () => this.options.onRoom());
+
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
+      this.roomButton,
       this.soundButton,
       missionButton,
       infoButton,
@@ -117,6 +133,18 @@ export class CityHud {
 
   get isBlocking(): boolean {
     return this.isInfoOpen || this.isMissionsOpen;
+  }
+
+  /**
+   * The room this city is part of, or null when it is only yours.
+   *
+   * The label is the room's code and how full it is, which is the one thing a
+   * host is asked over and over while a class files in.
+   */
+  setRoom(label: string | null): void {
+    this.roomButton.classList.toggle("is-gone", label === null);
+    this.roomButton.setAttribute("aria-label", label ? `The class — ${label}` : "The class");
+    this.roomButton.title = label ?? "";
   }
 
   /** The mode being played, shown on the mission panel. */
@@ -301,6 +329,19 @@ export class CityHud {
     });
     reset.addEventListener("click", () => this.options.onReset());
 
+    // The customiser lives on the main menu, which is gone once you are
+    // walking — and "can I be the robot instead?" is a question that arrives
+    // about ninety seconds into a lesson, not before it.
+    const character = el("button", {
+      class: "pill-button ghost",
+      type: "button",
+      text: "🧍 Your character",
+    });
+    character.addEventListener("click", () => {
+      this.toggleInfo(false);
+      this.options.onCharacter();
+    });
+
     const info = el("div", { class: "overlay info-overlay", "aria-hidden": "true" }, [
       el("div", { class: "overlay-scrim" }),
       el("div", { class: "card info-card" }, [
@@ -314,7 +355,7 @@ export class CityHud {
           }),
           el("ul", { class: "info-list" }, [
             el("li", { text: "Move — WASD / arrow keys, or the left half of a touch screen." }),
-            el("li", { text: "Sprint — hold Shift." }),
+            el("li", { text: "Sprint — hold Shift. A walk is a walk; Shift is for a hurry." }),
             el("li", { text: "Jump — space, or a quick tap on the right half." }),
             el("li", {
               text: "Look — click once to take the mouse, then move it. Esc gives it back.",
@@ -327,7 +368,7 @@ export class CityHud {
             class: "info-note",
             text: "Stay on the pavement and cross at the crossings — that is the whole point of the directions people give you. A wrong answer costs nothing: the option locks and you try again. Cars stop at red lights and the sun really does go down. Pronunciation uses your device voice; your progress is saved in this browser.",
           }),
-          el("div", { class: "lesson-actions" }, [reset]),
+          el("div", { class: "lesson-actions" }, [character, reset]),
         ]),
         closeButton(() => this.toggleInfo(false), "Close"),
       ]),
