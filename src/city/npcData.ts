@@ -12,7 +12,15 @@
  * directions stays put, because their route was computed from their corner.
  */
 
-export type QuestKind = 'directions' | 'find' | 'grammar';
+/**
+ * What a citizen asks you.
+ *
+ * `clue` is the odd one out: the other three are generated from the city, and
+ * a clue is generated from the *case* — see `game/detective.ts`. Nobody is
+ * authored as a clue-giver, because who holds which clue is the mode's
+ * business and changes every case.
+ */
+export type QuestKind = 'directions' | 'find' | 'grammar' | 'clue';
 
 /** Accessory that makes a citizen recognisable from across the street. */
 export type Outfit = 'none' | 'cap' | 'hat' | 'backpack' | 'apron' | 'helmet' | 'glasses';

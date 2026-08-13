@@ -4,6 +4,7 @@ import { CURB } from "./city";
 import { walkable } from "./ground";
 import { buildNpcs, type Npc } from "../game/quests";
 import type { GameMode } from "../game/modes";
+import type { Detective } from "../game/detective";
 
 /**
  * The people on the pavement, and the reason to walk up to them.
@@ -86,8 +87,14 @@ export class Npcs {
   readonly npcs: Npc[];
   private readonly views: NpcView[] = [];
 
-  constructor(mode: GameMode) {
-    this.npcs = buildNpcs(mode.kinds);
+  /**
+   * @param detective The open case, in Family Detective. The crowd needs it
+   * because who holds which clue is decided when the citizens are built, and
+   * a citizen's question must not change under a student who walked away to
+   * think about it.
+   */
+  constructor(mode: GameMode, detective: Detective | null = null) {
+    this.npcs = buildNpcs(mode.kinds, detective);
     for (const npc of this.npcs) {
       const holder = new Group();
       const character = new Character(npc, PERSON_SCALE);

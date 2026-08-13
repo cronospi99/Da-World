@@ -21,7 +21,10 @@
 
 import { HROADS, VROADS, INTERSECTIONS, type Intersection } from "../city/layout";
 import { BUILDINGS, doorOf, relationsOf, type Building } from "../city/buildings";
-import { GRAMMAR_BANK, type GrammarItem, type GrammarTag } from "./grammar";
+import { GRAMMAR_BANK, type GrammarItem } from "./grammar";
+import { PRACTICE_BANK, type PracticeItem } from "./family";
+import type { Clue, ClueForm, Detective } from "./detective";
+import type { SkillTag } from "./state";
 import { nearestWalkable } from "../city/ground";
 import { mulberry32, shuffle } from "../core/rng";
 import { NPC_DEFS, type NpcDef, type QuestKind } from "../city/npcData";
@@ -37,7 +40,15 @@ export interface Quest {
   options: string[];
   explain: string;
   hint: string;
-  tag: GrammarTag | "directions" | "prepositions";
+  tag: SkillTag;
+  /**
+   * The fact this question is carrying, in Family Detective.
+   *
+   * Present only while the citizen still has something to tell you: once the
+   * clue is in the file they deal frequency practice instead, and this goes
+   * away with it.
+   */
+  clue?: Clue;
   /** Runtime flags. */
   hintUsed?: boolean;
   locked?: string[];
@@ -284,12 +295,94 @@ function grammarQuest(g: GrammarItem, id: number, round: number): Quest {
   return quest;
 }
 
-/** Hand a grammar citizen the next item in the deck. */
-export function refreshGrammarQuest(npc: Npc): void {
-  if (npc.type !== "grammar") return;
-  npc.round += 1;
-  npc.practice = true;
-  npc.quest = grammarQuest(deal(), npc.id, npc.round);
+/* ------------------------------- clues -------------------------------- */
+
+/** Which language point each shape of clue is scored under. */
+const CLUE_TAG: Record<ClueForm, SkillTag> = {
+  frequency: "frequency",
+  order: "word-order",
+  family: "family",
+};
+
+function clueQuest(clue: Clue, id: number, round: number): Quest {
+  const quest: Quest = {
+    kind: "clue",
+    target: null,
+    q: clue.q,
+    correct: clue.correct,
+    wrongs: clue.wrongs,
+    options: [],
+    explain: clue.explain,
+    hint: clue.hint,
+    tag: CLUE_TAG[clue.form],
+    clue,
+  };
+  quest.options = shuffle(
+    [quest.correct, ...quest.wrongs],
+    mulberry32(7000 + id * 31 + round * 977),
+  );
+  return quest;
+}
+
+/**
+ * The frequency practice a citizen falls back on once their clue is told.
+ *
+ * Without this a solved street goes quiet: thirty-two people who have each
+ * said their one line and have nothing else to offer, in a mode whose whole
+ * loop is walking up to people. These are the worksheet's own two quizzes, and
+ * they say nothing about the case — which is the point. They are worth XP and
+ * they are worth practice, and they are not worth hunting for a shortcut.
+ */
+function practiceQuest(item: PracticeItem, id: number, round: number): Quest {
+  const quest: Quest = {
+    kind: "clue",
+    target: null,
+    q:
+      `🗣️ Nothing new about the case — but here, practise with me:<br>` +
+      `<span class="hl">${item.q}</span>`,
+    correct: item.answer,
+    wrongs: item.wrong,
+    options: [],
+    explain: `📊 ${item.about === "family" ? "Family routines take the same adverbs" : "Put it on the scale"} — 100% always · 90% usually · 70% often · 50% sometimes · 10% rarely / hardly ever · 0% never.`,
+    hint: "💡 Look for the number or the time expression in the sentence — that is what picks the word.",
+    tag: "frequency",
+  };
+  quest.options = shuffle(
+    [quest.correct, ...quest.wrongs],
+    mulberry32(9000 + id * 31 + round * 977),
+  );
+  return quest;
+}
+
+/** Deal practice items so two neighbours are not drilling the same sentence. */
+function practiceDealer() {
+  const rand = mulberry32(421);
+  const bank = shuffle(PRACTICE_BANK, rand);
+  let i = 0;
+  return () => bank[i++ % bank.length];
+}
+
+let dealPractice = practiceDealer();
+
+/**
+ * Move a citizen on to their next question after a correct answer.
+ *
+ * Grammar citizens deal the next item from the bank; clue citizens hand over
+ * their clue exactly once and then switch to practice for good. Everybody else
+ * is done, and says so.
+ */
+export function advanceQuest(npc: Npc): void {
+  if (npc.type === "grammar") {
+    npc.round += 1;
+    npc.practice = true;
+    npc.quest = grammarQuest(deal(), npc.id, npc.round);
+    return;
+  }
+  if (npc.type === "clue") {
+    npc.round += 1;
+    npc.practice = true;
+    npc.quest = practiceQuest(dealPractice(), npc.id, npc.round);
+  }
 }
 
 /**
@@ -302,9 +395,19 @@ export function refreshGrammarQuest(npc: Npc): void {
  * somebody is — their name, their job, their line of small talk — is authored
  * and never changes; what they ask you is the mode's business.
  */
-export function buildNpcs(kinds: readonly QuestKind[] = ["directions", "find", "grammar"]): Npc[] {
+export function buildNpcs(
+  kinds: readonly QuestKind[] = ["directions", "find", "grammar"],
+  detective: Detective | null = null,
+): Npc[] {
   deal = grammarDealer();
+  dealPractice = practiceDealer();
   const allowed = kinds.length ? kinds : (["find"] as const);
+  // The case has fewer clues than the city has people, so they go round more
+  // than once. That is deliberate: twelve students spreading out over ninety
+  // streets should not each have to find one specific citizen, and a clue you
+  // have already banked still leaves somebody standing there with frequency
+  // practice to give you.
+  let clueIndex = 0;
   return NPC_DEFS.map((rawDef, id) => {
     // The citizens are hand-placed, and the pedestrian rules are derived from
     // the street grid, so a citizen is snapped onto legal pavement before
@@ -329,6 +432,19 @@ export function buildNpcs(kinds: readonly QuestKind[] = ["directions", "find", "
         quest: grammarQuest(deal(), id, 0),
         done: false,
         practice: false,
+        round: 0,
+      };
+    }
+    if (def.type === "clue") {
+      // A clue citizen with no case is a bug that would show up as a silent
+      // crowd, so they fall back to frequency practice rather than to nothing.
+      const clue = detective?.clues[clueIndex++ % detective.clues.length];
+      return {
+        ...def,
+        id,
+        quest: clue ? clueQuest(clue, id, 0) : practiceQuest(dealPractice(), id, 0),
+        done: false,
+        practice: !clue,
         round: 0,
       };
     }
