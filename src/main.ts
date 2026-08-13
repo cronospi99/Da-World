@@ -5,10 +5,11 @@ import { Engine } from "./core/engine";
 import { Input } from "./core/input";
 import { detectQuality, rememberQuality, QUALITY } from "./core/quality";
 import { BUILDING_BY_ID, type Building } from "./city/buildings";
-import { City } from "./city/city";
+import { City, TREE_SPOTS } from "./city/city";
 import { BODY_RADIUS } from "./city/ground";
 import { DayNight } from "./city/daynight";
 import { streetAt, visitsAt } from "./city/discovery";
+import { isSidewalk } from "./city/layout";
 import { KIT_REQUESTS } from "./city/kit";
 import { loadKits } from "./city/kits";
 import { Npcs } from "./city/npcs";
@@ -31,6 +32,9 @@ import {
 } from "./game/state";
 import { CameraRig } from "./game/cameraRig";
 import { Player } from "./game/player";
+import { loadAppearance, saveAppearance, type Appearance } from "./game/appearance";
+import { CharacterPanel } from "./ui/character";
+import { Leaderboard, type LeaderRow } from "./ui/leaderboard";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
 import { TeacherPanel } from "./ui/teacher";
@@ -38,6 +42,9 @@ import { TouchControls, isTouchDevice } from "./ui/touch";
 import { Lobby } from "./ui/lobby";
 import { Classmates } from "./city/classmates";
 import { NetClient } from "./net/client";
+import { PeerGuest, PeerHost, clearCodeInUrl, codeInUrl, joinUrl } from "./net/peer";
+import { MAX_PLAYERS } from "./net/protocol";
+import { NO_SESSION, type NetHandlers, type Session } from "./net/session";
 import { Dialog } from "./ui/dialog";
 import { Speech } from "./learn/speech";
 import { createEnvironment } from "./world/environment";
@@ -116,11 +123,16 @@ async function boot(): Promise<void> {
   engine.scene.add(npcs.group);
 
   // Everybody else in the room, when there is a room. Empty and free the rest
-  // of the time — Class mode is the only thing in the game that needs a server.
+  // of the time — Class mode is the only mode with anybody else in it.
   const classmates = new Classmates();
   engine.scene.add(classmates.group);
 
-  const player = new Player(START);
+  // Who you are, from the last time you chose. The customiser can change it
+  // while the game is running, and whoever else is in the room is told, so it
+  // is a variable rather than a constant.
+  let appearance: Appearance = loadAppearance();
+
+  const player = new Player(START, appearance);
   player.body.facing = START_FACING;
   // The crowd is solid: you stop against the person you are walking up to
   // rather than standing inside them while they talk to you.
@@ -143,22 +155,53 @@ async function boot(): Promise<void> {
       location.reload();
     },
     onPause: () => syncInput(),
+    // Shown only while there is a room: it is how a host puts the QR code back
+    // on the board for the student who arrived late.
+    onRoom: () => {
+      lobby.open();
+      syncInput();
+    },
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
+    },
+    onLeaderboard: () => {
+      refreshBoard();
+      leaderboard.toggle(true);
+      syncInput();
+    },
   });
+
+  const leaderboard = new Leaderboard(ui, () => syncInput());
 
   /** The building a hint is pointing at, if any. */
   const hintTarget = (): Building | null =>
     state.hintTargetId ? BUILDING_BY_ID.get(state.hintTargetId) ?? null : null;
 
   function checkMissions(): void {
+    let finished = false;
     for (const mission of missions) {
       if (!state.missionsDone.has(mission.id) && mission.get(state) >= mission.goal) {
         state.missionsDone.add(mission.id);
+        finished = true;
         hud.showToast(mission.icon, "Mission complete!", mission.label);
       }
     }
     if (!state.champion && missions.every((m) => state.missionsDone.has(m.id))) {
       state.champion = true;
       hud.showToast("👑", "City champion!", "Every mission in Da World is done.");
+    }
+    // A mission can finish by walking past a door as well as by answering
+    // somebody, so the room hears about it from here rather than from the
+    // answer — otherwise the leaderboard lags a lap behind the race.
+    if (finished) reportProgress();
+
+    // Off the network the race still counts, and there is nobody to referee
+    // it: one player, one target, and the moment they reach it they have won.
+    if (!net.connected && winTarget > 0 && !winner && state.missionsDone.size >= winTarget) {
+      winner = { id: myId, name: myName };
+      hud.showToast("🏆", "You won!", `${winTarget} missions finished.`);
+      refreshBoard();
     }
     hud.refresh();
   }
@@ -205,7 +248,7 @@ async function boot(): Promise<void> {
       refreshGrammarQuest(npc);
       checkMissions();
       saveState(state);
-      net.progress(state.score, state.helped.size);
+      reportProgress();
     },
     onWrong() {
       /* The card says what went wrong; nothing else has to happen. */
@@ -219,7 +262,13 @@ async function boot(): Promise<void> {
 
   /** The world only listens while nothing is covering it. */
   const busy = (): boolean =>
-    dialog.open || hud.isBlocking || menu.isOpen || teacher.isOpen || lobby.isOpen;
+    dialog.open ||
+    hud.isBlocking ||
+    menu.isOpen ||
+    teacher.isOpen ||
+    lobby.isOpen ||
+    character.isOpen ||
+    leaderboard.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -250,6 +299,8 @@ async function boot(): Promise<void> {
 
   input.onCancel(() => {
     if (dialog.open) dialog.close();
+    else if (leaderboard.isOpen) leaderboard.toggle(false);
+    else if (character.isOpen) character.toggle(false);
     else if (teacher.isOpen) teacher.toggle(false);
     else if (hud.closeTop()) return;
     else input.releasePointerLock();
@@ -364,24 +415,115 @@ async function boot(): Promise<void> {
 
   /* --------------------------- the class -------------------------------- */
 
-  const net = new NetClient({
-    onReady: (_you, peers, goal, netMode) => {
+  /**
+   * The room, whoever is holding it.
+   *
+   * Three things can be behind this: nothing at all, which is how the game
+   * spends most of its life; a `PeerHost`, when this browser *is* the server
+   * and the class scanned its code; or a guest session talking to somebody
+   * else's browser or to the node relay. The city below does not know which,
+   * and asks all three the same four things.
+   */
+  let net: Session = NO_SESSION;
+  let host: PeerHost | null = null;
+  /**
+   * How many missions win the match, and who got there first.
+   *
+   * The teacher sets it; in a room the host or the server decides who wins,
+   * because twelve browsers each deciding they were first is twelve winners.
+   * Off (zero) unless somebody sets it, which is most lessons.
+   */
+  let winTarget = 0;
+  let winner: { id: string; name: string } | null = null;
+  /** What the room calls us, once we have joined one. */
+  let myName = "You";
+  /**
+   * The id the room gave us.
+   *
+   * Needed because "did *I* win?" is answered by comparing ids, and our own
+   * row on the leaderboard is built from local state rather than from a peer
+   * record — so without this it would be the one row that never matches the
+   * winner the host announced.
+   */
+  let myId = "me";
+
+  /** Everything the room ranks on, sent whenever one of them changes. */
+  function reportProgress(): void {
+    net.progress(state.score, state.helped.size, state.missionsDone.size);
+    refreshBoard();
+  }
+
+  /** The rows of the leaderboard: everybody in the room, me included. */
+  function boardRows(): LeaderRow[] {
+    const mine: LeaderRow = {
+      id: myId,
+      name: myName,
+      teacher: host !== null,
+      missions: state.missionsDone.size,
+      score: state.score,
+      helped: state.helped.size,
+      you: true,
+    };
+    const others = classmates.peers().map((peer) => ({
+      id: peer.id,
+      name: peer.name,
+      teacher: peer.role === "teacher",
+      missions: peer.missions,
+      score: peer.score,
+      helped: peer.helped,
+      you: false,
+    }));
+    return [mine, ...others];
+  }
+
+  function refreshBoard(): void {
+    leaderboard.update(boardRows(), winTarget, winner);
+  }
+
+  /** The chip in the corner: which room this is, and how full. */
+  function refreshRoom(): void {
+    if (!net.connected) {
+      hud.setRoom(null);
+      return;
+    }
+    const people = classmates.peers().length + 1;
+    // The code button belongs to whoever is holding the room open. A student
+    // has nothing to do with it and gets the leaderboard instead.
+    hud.setRoom(host?.code ? `${host.code}  ·  ${people}/${MAX_PLAYERS}` : null);
+  }
+
+  const netHandlers: NetHandlers = {
+    onReady: (you, peers, goal, netMode, target, roomWinner) => {
+      myId = you;
       lobby.toggle(false);
       classmates.clear();
       for (const peer of peers) classmates.add(peer);
       state.focusMissionId = goal;
+      winTarget = target;
+      winner = roomWinner;
+      teacher.setTarget(target);
       const chosen = netMode ? MODES[netMode as keyof typeof MODES] : null;
       startMode(chosen ?? MODES.vocabulary);
+      refreshRoom();
+      hud.setLeaderboard(true);
+      reportProgress();
       hud.showToast("👥", "You are in the class", `${peers.length + 1} in the city.`);
     },
     onDenied: (reason) => lobby.fail(reason),
     onJoined: (peer) => {
       classmates.add(peer);
+      refreshRoom();
       hud.showToast("👋", `${peer.name} joined`, `${classmates.peers().length + 1} in the city.`);
     },
-    onLeft: (id) => classmates.remove(id),
+    onLeft: (id) => {
+      classmates.remove(id);
+      refreshRoom();
+    },
     onPositions: (peers) => classmates.setPositions(peers),
-    onProgress: (id, score, helped) => classmates.setProgress(id, score, helped),
+    onProgress: (id, score, helped, missions) => {
+      classmates.setProgress(id, score, helped, missions);
+      refreshBoard();
+    },
     onGoal: (missionId) => {
       state.focusMissionId = missionId;
       hud.refresh();
@@ -394,23 +536,136 @@ async function boot(): Promise<void> {
       const chosen = MODES[modeId as keyof typeof MODES];
       if (chosen && chosen.id !== mode.id) startMode(chosen);
     },
+    onTarget: (missions) => {
+      winTarget = missions;
+      winner = null;
+      teacher.setTarget(missions);
+      refreshBoard();
+      hud.showToast(
+        "🏁",
+        missions > 0 ? "The race is on" : "No race",
+        missions > 0
+          ? `First to ${missions} mission${missions === 1 ? "" : "s"} wins.`
+          : "Your teacher has called the race off.",
+      );
+    },
+    onWon: (id, name, missions) => {
+      winner = { id, name };
+      refreshBoard();
+      // Everybody is told, winner included, and everybody is shown the board:
+      // a race nobody sees the end of is not a race.
+      const mine = id === myId;
+      hud.showToast(
+        "🏆",
+        mine ? "You won!" : `${name} won`,
+        `${missions} missions finished. The city carries on — keep helping.`,
+      );
+      leaderboard.toggle(true);
+      syncInput();
+    },
     onClosed: () => {
       classmates.clear();
+      hud.setLeaderboard(false);
+      refreshRoom();
       if (playing) {
         hud.showToast("🔌", "Disconnected from the class", "The city carries on without them.");
       }
     },
-  });
+  };
+
+  /** Leave whatever room we are in, quietly. */
+  function leaveRoom(): void {
+    net.close();
+    net = NO_SESSION;
+    host = null;
+    winner = null;
+    myId = "me";
+    classmates.clear();
+    hud.setLeaderboard(false);
+    refreshRoom();
+  }
+
+  /**
+   * Open a room in this browser.
+   *
+   * The host is a player like everybody else and their city starts the moment
+   * the code exists, so they can be walking around it while the class is still
+   * getting their phones out. The mode is set here rather than left to drift:
+   * whoever hosts decides what the room is playing, and everybody who scans in
+   * afterwards is told on arrival.
+   */
+  function openRoom(name: string): Promise<void> {
+    leaveRoom();
+    return new Promise<void>((resolve, reject) => {
+      let opened = false;
+      const created = new PeerHost(name, appearance, {
+        onOpen: (code) => {
+          opened = true;
+          lobby.showRoom(code, joinUrl(code));
+          refreshRoom();
+          resolve();
+        },
+        onRoster: (peers) => {
+          lobby.setRoster(peers);
+          refreshRoom();
+        },
+        onError: (reason) => {
+          if (opened) lobby.fail(reason);
+          else reject(new Error(reason));
+        },
+        onJoined: netHandlers.onJoined,
+        onLeft: netHandlers.onLeft,
+        onPositions: netHandlers.onPositions,
+        onProgress: netHandlers.onProgress,
+        onWon: netHandlers.onWon,
+      });
+      host = created;
+      net = created;
+      myName = name;
+      myId = created.id;
+      hud.setLeaderboard(true);
+      // Hosting is the one claim to the teacher's panel that cannot be
+      // borrowed: the room only exists while this tab does.
+      teacher.unlock();
+      startMode(MODES.multiplayer);
+      created.setMode(MODES.multiplayer.id);
+    });
+  }
 
   const lobby = new Lobby(ui, {
-    onJoin: (details) =>
-      net.join({
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
+    },
+    onHost: (name) => openRoom(name),
+    onJoin: (code, name) => {
+      leaveRoom();
+      myName = name;
+      const guest = new PeerGuest(netHandlers, {
+        code,
+        name,
+        look: appearance,
+        onStatus: (text) => lobby.setStatus(text),
+      });
+      net = guest;
+      return guest.join();
+    },
+    onServerJoin: (details) => {
+      leaveRoom();
+      myName = details.name;
+      const client = new NetClient(netHandlers);
+      net = client;
+      return client.join({
         url: details.url,
         room: details.room,
         name: details.name,
         role: details.asTeacher ? "teacher" : "student",
+        look: appearance,
         passphrase: details.passphrase,
-      }),
+      });
+    },
+    onEnter: () => syncInput(),
+    onCloseRoom: () => leaveRoom(),
     onCancel: () => menu.show(),
   });
 
@@ -427,10 +682,14 @@ async function boot(): Promise<void> {
       // before it starts; everything else walks straight into the city.
       if (chosen.networked) {
         menu.hide();
-        lobby.toggle(true);
+        lobby.open();
         return;
       }
       startMode(chosen);
+    },
+    onCharacter: () => {
+      character.toggle(true);
+      syncInput();
     },
     onQuality: (name) => {
       engine.setQuality(name);
@@ -439,6 +698,17 @@ async function boot(): Promise<void> {
       rememberQuality(name);
     },
     onTeacher: () => teacher.toggle(true),
+  });
+
+  const character = new CharacterPanel(ui, appearance, {
+    // Live: the character in the city changes as the swatches are tapped, which
+    // is the whole reason the panel is worth having over a list of names.
+    onChange: (chosen) => {
+      appearance = chosen;
+      player.setAppearance(chosen);
+      saveAppearance(chosen);
+    },
+    onClose: () => syncInput(),
   });
 
   const teacher = new TeacherPanel(ui, state, {
@@ -455,11 +725,32 @@ async function boot(): Promise<void> {
       net.setMode(chosen.id);
       startMode(chosen);
     },
+    onSetTarget: (missions) => {
+      // The race is a rule of the lesson, not of the network: it works on one
+      // laptop too, where the only person racing is the one holding it.
+      winTarget = missions;
+      winner = null;
+      net.setTarget(missions);
+      refreshBoard();
+      checkMissions();
+    },
     onPause: () => syncInput(),
   });
 
   engine.start();
   checkMissions();
+
+  // Arrived by scanning somebody's QR code: skip the menu entirely and ask for
+  // the one thing the code cannot carry, which is who this is. The code is
+  // then wiped from the address bar, so a reload does not silently rejoin a
+  // lesson that finished an hour ago.
+  const scanned = codeInUrl();
+  if (scanned) {
+    menu.hide();
+    lobby.openWithCode(scanned);
+    clearCodeInUrl();
+    syncInput();
+  }
 
   // Handy while working on the city: inspect and teleport from the console.
   (window as unknown as Record<string, unknown>).__world = {
@@ -479,6 +770,17 @@ async function boot(): Promise<void> {
     },
     classmates,
     classmatesGroup: classmates.group,
+    // The room, for the QR smoke test and for poking at a lesson that is
+    // misbehaving. Getters, because both are replaced when a room changes.
+    get host() {
+      return host;
+    },
+    get net() {
+      return net;
+    },
+    /** The race, for the smoke test and for a lesson that is misbehaving. */
+    winTarget: () => winTarget,
+    winner: () => winner,
     goTo: (x: number, z: number, facing = player.body.facing) => {
       player.teleport(x, z);
       player.body.facing = facing;
@@ -496,6 +798,16 @@ async function boot(): Promise<void> {
       return npc.name;
     },
     setHour: (hour: number) => dayNight.setHours(hour),
+    /**
+     * How many trees ended up on a pavement, which must be none.
+     *
+     * The kerbside planting was taken out because a trunk every few paces made
+     * walking down a three-tile pavement a slalom. This is the invariant that
+     * says so out loud, so the next change to the planting rules cannot quietly
+     * put them back.
+     */
+    treesOnPavement: (): number =>
+      TREE_SPOTS.filter((t) => isSidewalk(Math.floor(t.x), Math.floor(t.z))).length,
     stats: () => ({ ...engine.renderer.info.render }),
   };
 

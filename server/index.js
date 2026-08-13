@@ -33,7 +33,9 @@ import { WebSocketServer } from "ws";
 const PORT = Number(process.env.PORT ?? 8787);
 const TEACHER_PASSPHRASE = process.env.DA_WORLD_TEACHER_PASSPHRASE ?? "teacher";
 const PROTOCOL = 1;
-const MAX_STUDENTS = 12;
+/** Everybody in one city at once, the teacher included. Keep in step with
+ *  MAX_PLAYERS in src/net/protocol.ts. */
+const MAX_PLAYERS = 12;
 /** How often everybody's position goes out, in milliseconds. */
 const TICK_MS = 100;
 
@@ -55,7 +57,7 @@ const rooms = new Map();
 function room(code) {
   let found = rooms.get(code);
   if (!found) {
-    found = { code, peers: new Map(), goal: null, mode: null };
+    found = { code, peers: new Map(), goal: null, mode: null, target: 0, winner: null };
     rooms.set(code, found);
   }
   return found;
@@ -81,7 +83,45 @@ const publicPeer = (peer) => ({
   facing: peer.facing,
   score: peer.score,
   helped: peer.helped,
+  missions: peer.missions,
+  look: peer.look,
 });
+
+/**
+ * A look, as far as this server is concerned.
+ *
+ * It never draws anybody, so it does not care what the colours mean — only
+ * that what it stores and forwards is small, is strings, and cannot carry
+ * anything surprising into twelve other browsers.
+ */
+function sanitiseLook(look) {
+  if (!look || typeof look !== "object") return null;
+  const colour = (value) =>
+    typeof value === "string" && /^#[0-9a-fA-F]{3,8}$/.test(value) ? value : "#cccccc";
+  return {
+    kind: look.kind === "robot" ? "robot" : "human",
+    shirt: colour(look.shirt),
+    pants: colour(look.pants),
+    skin: colour(look.skin),
+    hair: colour(look.hair),
+    outfit: typeof look.outfit === "string" ? look.outfit.slice(0, 16) : "none",
+  };
+}
+
+/**
+ * Has this person just won?
+ *
+ * Decided here rather than in each browser, for the same reason the guest list
+ * is: twelve copies of the game each deciding they won first is twelve
+ * different winners. The server counts, announces once, and the announcement
+ * is what every screen shows.
+ */
+function checkWinner(target, peer) {
+  if (target.winner || target.target <= 0 || peer.missions < target.target) return;
+  target.winner = { id: peer.id, name: peer.name };
+  broadcast(target, { t: "won", id: peer.id, name: peer.name, missions: peer.missions });
+  console.log(`[da-world] ${peer.name} won ${target.code} with ${peer.missions} missions`);
+}
 
 const server = createServer((request, response) => {
   // A plain GET is somebody checking the server is up, usually by pasting the
@@ -133,11 +173,13 @@ wss.on("connection", (socket) => {
         socket.close();
         return;
       }
-      const students = [...target.peers.values()].filter((p) => p.role === "student").length;
-      if (!isTeacher && students >= MAX_STUDENTS) {
+      // The teacher counts towards the room: twelve people in one city is the
+      // limit whichever of them is holding it open, so that a class told they
+      // can have twelve gets twelve here and in QR mode alike.
+      if (target.peers.size >= MAX_PLAYERS) {
         send(socket, {
           t: "denied",
-          reason: `This room is full (${MAX_STUDENTS} students).`,
+          reason: `This room is full (${MAX_PLAYERS} people).`,
         });
         socket.close();
         return;
@@ -152,6 +194,10 @@ wss.on("connection", (socket) => {
         facing: 0,
         score: 0,
         helped: 0,
+        missions: 0,
+        // Trusted as given: it is only ever used to draw them, and a student
+        // who lies about their own trousers has not gained anything.
+        look: sanitiseLook(message.look),
         socket,
       };
       joined = target;
@@ -163,6 +209,8 @@ wss.on("connection", (socket) => {
         peers: [...target.peers.values()].map(publicPeer),
         goal: target.goal,
         mode: target.mode,
+        target: target.target,
+        winner: target.winner,
       });
       target.peers.set(peer.id, peer);
       broadcast(target, { t: "joined", peer: publicPeer(peer) }, peer.id);
@@ -182,7 +230,15 @@ wss.on("connection", (socket) => {
       case "progress":
         peer.score = Number(message.score) || 0;
         peer.helped = Number(message.helped) || 0;
-        broadcast(joined, { t: "progress", id: peer.id, score: peer.score, helped: peer.helped });
+        peer.missions = Number(message.missions) || 0;
+        broadcast(joined, {
+          t: "progress",
+          id: peer.id,
+          score: peer.score,
+          helped: peer.helped,
+          missions: peer.missions,
+        });
+        checkWinner(joined, peer);
         break;
 
       // The two teacher commands. Checked by role here rather than trusted from
@@ -198,6 +254,16 @@ wss.on("connection", (socket) => {
         if (peer.role !== "teacher") return;
         joined.mode = String(message.modeId);
         broadcast(joined, { t: "mode", modeId: joined.mode });
+        break;
+
+      // How many missions win the match. Changing it starts a new race, so the
+      // old winner is cleared — a lesson can run more than one.
+      case "target":
+        if (peer.role !== "teacher") return;
+        joined.target = Math.max(0, Math.floor(Number(message.missions) || 0));
+        joined.winner = null;
+        broadcast(joined, { t: "target", missions: joined.target });
+        for (const other of joined.peers.values()) checkWinner(joined, other);
         break;
 
       default:

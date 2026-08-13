@@ -44,6 +44,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
+  CROSSINGS,
   FURNITURE_OFFSET,
   GH,
   GW,
@@ -59,6 +60,7 @@ import {
   Y_BANDS,
   hRowSet,
   isRoad,
+  isSidewalk,
   vColSet,
   type Zone,
 } from './layout';
@@ -467,11 +469,13 @@ function buildGround(parent: Group, painter: DecalPainter): void {
     }
   }
 
-  // Stop lines: one on each approach to every junction.
+  // Stop lines: one on each approach to every junction, behind the crossing
+  // rather than across it — cars stop before the zebra, not on it.
+  const STOP_LINE = half + 2.9;
   for (const it of INTERSECTIONS) {
     for (const s of [-1, 1]) {
-      solids.push(quad(half - 0.4, 0.26, it.cx + s * (half / 2 + 0.2), it.cy + s * (half + 1.35), 0.015));
-      solids.push(quad(0.26, half - 0.4, it.cx - s * (half + 1.35), it.cy + s * (half / 2 + 0.2), 0.015));
+      solids.push(quad(half - 0.4, 0.26, it.cx + s * (half / 2 + 0.2), it.cy + s * STOP_LINE, 0.015));
+      solids.push(quad(0.26, half - 0.4, it.cx - s * STOP_LINE, it.cy + s * (half / 2 + 0.2), 0.015));
     }
   }
 
@@ -493,16 +497,31 @@ function buildGround(parent: Group, painter: DecalPainter): void {
   painter.add(solidMesh, 0.5);
   solids.forEach((g) => g.dispose());
 
-  /* ---- zebra crossings ---- */
+  /* ---- zebra crossings ----
+     A real zebra: bars that run kerb to kerb, the way the pedestrian walks,
+     repeated along the road so a driver sees a ladder across their lane.
+
+     What was here before laid every bar at the *same* point on the road and
+     spread them sideways instead, so all eight overlapped into a single long
+     white stripe down the middle of the crossing — which is what you saw from
+     the pavement, and it read as a lane marking rather than a crossing.
+
+     The bars come off the `CROSSINGS` rectangles, which is also what
+     `walkable()` tests, so the paint is the permission. */
   const zebra: BufferGeometry[] = [];
-  const stripes = ROAD_W >= 4 ? 8 : 6;
-  for (const it of INTERSECTIONS) {
-    for (let i = 0; i < stripes; i++) {
-      const o = -half * 0.76 + (i * half * 1.52) / (stripes - 1);
-      zebra.push(quad(0.34, ROAD_W - 0.6, it.cx - half - 0.72, it.cy + o, 0.016));
-      zebra.push(quad(0.34, ROAD_W - 0.6, it.cx + half + 0.72, it.cy + o, 0.016));
-      zebra.push(quad(ROAD_W - 0.6, 0.34, it.cx + o, it.cy - half - 0.72, 0.016));
-      zebra.push(quad(ROAD_W - 0.6, 0.34, it.cx + o, it.cy + half + 0.72, 0.016));
+  /** Bar width along the road, and bar-to-bar pitch. About 50 cm of each. */
+  const BAR = 0.36;
+  const PITCH = 0.65;
+  for (const c of CROSSINGS) {
+    const bars = Math.max(2, Math.floor((c.along * 2) / PITCH));
+    for (let i = 0; i < bars; i++) {
+      // Centred in the band, so an even count is not lopsided.
+      const o = (i - (bars - 1) / 2) * PITCH;
+      zebra.push(
+        c.axis === 'z'
+          ? quad(BAR, c.across * 2, c.cx + o, c.cy, 0.016)
+          : quad(c.across * 2, BAR, c.cx, c.cy + o, 0.016),
+      );
     }
   }
   const zebraMesh = new Mesh(
@@ -979,6 +998,10 @@ function treeSpots(): TreeSpot[] {
       }
       if (p.kind === 'riverside' && z > p.y + 2.2 && z < p.y + 6) continue;
       if (p.kind === 'sports' && x > p.x + 1.6 && x < p.x + p.w - 1.6 && z > p.y + 1.2) continue;
+      // A park's outer tiles are the pavement that runs past its railings, and
+      // a tree planted there is in the walking lane exactly as a street tree
+      // was. Plant it a row in.
+      if (isSidewalk(Math.floor(x), Math.floor(z))) continue;
       spots.push({ x, z, s: 0.9 + rand() * 0.6, kind: Math.floor(rand() * 3) });
     }
   }
@@ -987,6 +1010,7 @@ function treeSpots(): TreeSpot[] {
     const x = rand() * GW;
     const z = rand() * GH;
     if (isRoad(Math.floor(x), Math.floor(z))) continue;
+    if (isSidewalk(Math.floor(x), Math.floor(z))) continue;
     if (inPark(x, z)) continue;
     if (blocked(x, z)) continue;
     spots.push({ x, z, s: 0.75 + rand() * 0.65, kind: Math.floor(rand() * 3) });
@@ -1008,25 +1032,21 @@ function treeSpots(): TreeSpot[] {
     spots.push({ x, z, s: 0.9 + rand() * 0.8, kind: Math.floor(rand() * 3) });
   }
 
-  // Street trees along the kerbs.
-  for (const r of HROADS) {
-    for (let x = 1.5; x < GW; x += 3.6) {
-      if (vColSet.has(Math.floor(x))) continue;
-      for (const z of [kerbLine(r.rows, -1), kerbLine(r.rows, 1)]) {
-        if (z < 0 || z > GH || blocked(x, z)) continue;
-        spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 0 });
-      }
-    }
-  }
-  for (const r of VROADS) {
-    for (let z = 1.5; z < GH; z += 3.6) {
-      if (hRowSet.has(Math.floor(z))) continue;
-      for (const x of [kerbLine(r.cols, -1), kerbLine(r.cols, 1)]) {
-        if (x < 0 || x > GW || blocked(x, z)) continue;
-        spots.push({ x, z, s: 0.85 + rand() * 0.25, kind: 2 });
-      }
-    }
-  }
+  // Nothing is planted on a pavement.
+  //
+  // There used to be a street tree every three and a half tiles along both
+  // kerbs of every street, and they looked wonderful and ruined the walking.
+  // A pavement here is three tiles wide, a person is half a tile across, and a
+  // trunk you have to steer around every few paces turns a walk down Main
+  // Street into a slalom — worse on a phone, where the stick is a thumb and the
+  // correction you meant to make is never quite the one you made.
+  //
+  // The street keeps its furniture: lamp posts, benches, bins and bollards are
+  // placed against the kerb by `buildStreetProps`, in a line, out of the way of
+  // the middle of the pavement, which is what a real street does with them and
+  // what leaves a lane to walk in. The greenery moved to where you have room to
+  // wander around it — the parks, the gardens behind the blocks, and the
+  // woodland belt beyond the city limits.
   return spots;
 }
 
@@ -1141,14 +1161,12 @@ function buildStreetProps(parent: Group, lamplight: Lamplight): void {
       });
       lampLight(x + ax * LAMP_REACH, z, 3.0);
       solid(x, z, 0.22);
-      // A short bollard row keeps cars off the corner and gives the crossing
-      // a visible edge from above.
-      for (let i = 0; i < 3; i++) {
-        const bx = x - Math.sign(dx) * (0.1 + i * 0.55);
-        const bz = z + Math.sign(dz) * 0.55;
-        box(bags, PALETTE.metal, 0.14, 0.6, 0.14, bx, CURB + 0.3, bz, { ...trim, round: 0.06 });
-        solid(bx, bz, 0.16);
-      }
+      // There used to be a row of three bollards along each corner here. They
+      // gave the crossing a nice edge from above and stood exactly where a
+      // pedestrian has to walk to reach it: on a corner two tiles across, three
+      // posts and a lamp leave a gap you have to aim for, and on a phone you
+      // do not aim, you shove the stick and hope. The lamp stays, on the kerb
+      // line with everything else; the corner is clear.
     }
   }
 

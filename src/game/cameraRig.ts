@@ -49,8 +49,19 @@ const SHOULDER = 0.4;
 
 /** Radians per pixel of mouse movement while the pointer is locked. */
 const MOUSE_SENSITIVITY = 0.0026;
-/** Radians per pixel while dragging — a drag covers less screen, so it is faster. */
+/** Radians per pixel while dragging with a mouse — less screen, so faster. */
 const DRAG_SENSITIVITY = 0.005;
+/**
+ * Radians per pixel while dragging with a thumb.
+ *
+ * Twice the mouse drag, and it is not a preference: a thumb on a phone held
+ * upright has about a fifth of the screen to travel before it runs out of hand,
+ * and at the drag rate above that was barely a quarter turn. You had to swipe,
+ * lift, swipe, lift to look behind you, and by the third swipe you had lost the
+ * citizen you were turning towards. One comfortable swipe now takes the camera
+ * most of the way round.
+ */
+const TOUCH_SENSITIVITY = 0.011;
 
 const BASE_FOV = 58;
 const SPRINT_FOV = 65;
@@ -124,7 +135,11 @@ export class CameraRig {
     sprinting: boolean,
   ): void {
     const locked = this.pointerLocked;
-    const sensitivity = locked ? MOUSE_SENSITIVITY : DRAG_SENSITIVITY;
+    const sensitivity = locked
+      ? MOUSE_SENSITIVITY
+      : input.lookIsTouch
+        ? TOUCH_SENSITIVITY
+        : DRAG_SENSITIVITY;
 
     this.yaw -= input.look.x * sensitivity;
     this.pitch = THREE.MathUtils.clamp(

@@ -1,15 +1,23 @@
 /**
- * What the city and the class server say to each other.
+ * What the city and whoever is hosting it say to each other.
  *
- * Deliberately small and deliberately dumb. The server is a relay with a
- * guest list: it does not simulate the city, does not generate quests and does
- * not mark answers, because every browser already has the whole city and the
- * whole quest generator, and they all derive the same questions from the same
+ * Deliberately small and deliberately dumb. The host is a relay with a guest
+ * list: it does not simulate the city, does not generate quests and does not
+ * mark answers, because every browser already has the whole city and the whole
+ * quest generator, and they all derive the same questions from the same
  * tables. What has to be shared is only what one browser cannot know on its
  * own — where the other students are, what the teacher has just asked the room
  * to do, and how everybody is getting on.
  *
- * That is also why this file is imported by both sides. The server is plain
+ * There are two things that can be the host and they speak exactly this:
+ *
+ * - **A browser**, in QR mode. The teacher's own tab keeps the guest list and
+ *   forwards positions over WebRTC, and students reach it by scanning a code.
+ *   Nothing is installed and nothing is run; see `src/net/peer.ts`.
+ * - **`server/index.js`**, the WebSocket relay, for a school that would rather
+ *   have a fixed address than a code that changes every lesson.
+ *
+ * That is why this file is imported by all of them. The server is plain
  * JavaScript run by node and the game is TypeScript built by vite, so the
  * types here are the only thing keeping them honest with each other; if you
  * change a message, change it here first and let both ends fail to compile.
@@ -18,10 +26,34 @@
 /** Protocol version. A mismatch is refused rather than half-understood. */
 export const PROTOCOL = 1;
 
-/** The most people who may be in one city at once, teacher included. */
-export const MAX_STUDENTS = 12;
+/**
+ * The most people who may be in one city at once, the host included.
+ *
+ * Twelve is what a room of students and one teacher hosting from the front of
+ * it comes to, and it is also about what one browser can relay without the
+ * frame rate of the lesson suffering for it.
+ */
+export const MAX_PLAYERS = 12;
 
 export type Role = "student" | "teacher";
+
+/**
+ * What somebody looks like, as everybody else needs to draw them.
+ *
+ * The same shape as `Appearance` in `game/appearance.ts` — deliberately
+ * repeated rather than imported, because this file is the contract the plain
+ * JavaScript relay also honours, and it must not depend on the game. A class
+ * where everybody is a different person on the pavement is the entire point of
+ * letting them choose, so this travels with the join.
+ */
+export interface PeerLook {
+  kind: "human" | "robot";
+  shirt: string;
+  pants: string;
+  skin: string;
+  hair: string;
+  outfit: string;
+}
 
 /** A person in the room, as everybody else sees them. */
 export interface Peer {
@@ -35,6 +67,10 @@ export interface Peer {
   /** Their score, so the teacher's panel can show the room at a glance. */
   score: number;
   helped: number;
+  /** Missions finished — what the leaderboard ranks on and the match is won on. */
+  missions: number;
+  /** How to draw them, or null for somebody from an older version. */
+  look: PeerLook | null;
 }
 
 /* ----------------------------- client → server ---------------------------- */
@@ -48,30 +84,48 @@ export type ClientMessage =
       role: Role;
       /** Required for `role: "teacher"`; checked by the server, not the page. */
       passphrase?: string;
+      /** Who they made themselves in the customiser. */
+      look?: PeerLook;
     }
   /** Where I am. Sent on a timer, not every frame. */
   | { t: "move"; x: number; z: number; facing: number }
   /** I answered somebody. Carries the totals so nobody has to add up. */
-  | { t: "progress"; score: number; helped: number }
+  | { t: "progress"; score: number; helped: number; missions: number }
   /** Teacher only: put the room on a mission, or clear it with null. */
   | { t: "goal"; missionId: string | null }
   /** Teacher only: switch everybody to another mode. */
-  | { t: "mode"; modeId: string };
+  | { t: "mode"; modeId: string }
+  /** Teacher only: how many missions win the match. 0 turns the race off. */
+  | { t: "target"; missions: number };
 
 /* ----------------------------- server → client ---------------------------- */
 
 export type ServerMessage =
   /** You are in. `you` is your own id; `peers` is everybody already here. */
-  | { t: "welcome"; you: string; room: string; peers: Peer[]; goal: string | null; mode: string | null }
+  | {
+      t: "welcome";
+      you: string;
+      room: string;
+      peers: Peer[];
+      goal: string | null;
+      mode: string | null;
+      /** Missions needed to win, and who has already done it. */
+      target: number;
+      winner: { id: string; name: string } | null;
+    }
   /** Turned away, with a reason worth showing a human. */
   | { t: "denied"; reason: string }
   | { t: "joined"; peer: Peer }
   | { t: "left"; id: string }
   /** Everybody's position, at the server's tick rate. */
   | { t: "positions"; peers: Pick<Peer, "id" | "x" | "z" | "facing">[] }
-  | { t: "progress"; id: string; score: number; helped: number }
+  | { t: "progress"; id: string; score: number; helped: number; missions: number }
   | { t: "goal"; missionId: string | null }
-  | { t: "mode"; modeId: string };
+  | { t: "mode"; modeId: string }
+  /** The room's win condition changed. */
+  | { t: "target"; missions: number }
+  /** Somebody got there first. The match is over; the city carries on. */
+  | { t: "won"; id: string; name: string; missions: number };
 
 /** How often a client tells the server where it is, in milliseconds. */
 export const MOVE_INTERVAL_MS = 100;

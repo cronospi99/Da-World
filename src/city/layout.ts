@@ -146,11 +146,65 @@ for (let vi = 0; vi < VROADS.length; vi++) {
  */
 export const ROAD_OVERRUN = 16;
 
+/* ------------------------------------------------------------------ *
+ * Zebra crossings                                                      *
+ * ------------------------------------------------------------------ */
+
 /**
- * How far from an intersection centre a pedestrian may stand on the road.
- * Wide enough to cover the carriageway plus the kerb on both sides.
+ * The crossings, as rectangles rather than as a radius.
+ *
+ * This used to be one number — "a pedestrian may stand within four tiles of a
+ * junction centre" — which made the walkable area a *square* over the whole
+ * junction. Two things were wrong with that. You could walk diagonally across
+ * the middle of a crossroads, which is the one thing the pavement rule exists
+ * to stop; and the paint had no idea where that square was, so the white
+ * stripes and the place you were allowed to walk were two independent guesses
+ * that never quite lined up.
+ *
+ * So the crossing is a thing now, defined once, and both the paint in `city.ts`
+ * and `walkable()` in `ground.ts` are derived from it. Where the stripes are is
+ * where you may walk, by construction.
  */
-export const CROSSING_REACH = ROAD_W / 2 + 1.0;
+export interface Crossing {
+  cx: number;
+  cy: number;
+  /** Which way the pedestrian walks: 'z' crosses an east–west carriageway. */
+  axis: 'x' | 'z';
+  /** Half-depth, along the traffic direction — the striped band. */
+  along: number;
+  /** Half-width, across the carriageway, kerb to kerb. */
+  across: number;
+}
+
+/** Half the depth of the striped band, along the road. */
+const CROSSING_ALONG = 1.3;
+/** Half the width, across the carriageway. A shade over the kerb, so the
+ *  painted band meets the pavement rather than stopping short of it. */
+const CROSSING_ACROSS = ROAD_W / 2 + 0.3;
+/** Distance from the junction centre to the middle of the striped band. */
+const CROSSING_SETBACK = ROAD_W / 2 + CROSSING_ALONG;
+
+export const CROSSINGS: Crossing[] = INTERSECTIONS.flatMap((it) => [
+  // Across the east–west carriageway, on the west and east arms.
+  { cx: it.cx - CROSSING_SETBACK, cy: it.cy, axis: 'z' as const, along: CROSSING_ALONG, across: CROSSING_ACROSS },
+  { cx: it.cx + CROSSING_SETBACK, cy: it.cy, axis: 'z' as const, along: CROSSING_ALONG, across: CROSSING_ACROSS },
+  // Across the north–south carriageway, on the north and south arms.
+  { cx: it.cx, cy: it.cy - CROSSING_SETBACK, axis: 'x' as const, along: CROSSING_ALONG, across: CROSSING_ACROSS },
+  { cx: it.cx, cy: it.cy + CROSSING_SETBACK, axis: 'x' as const, along: CROSSING_ALONG, across: CROSSING_ACROSS },
+]);
+
+/** Is (x, z) on the paint? The only place a pedestrian may leave the kerb. */
+export function onCrossing(x: number, z: number): boolean {
+  for (const c of CROSSINGS) {
+    // `along` is measured on the traffic axis, which is the one the pedestrian
+    // is *not* walking down.
+    const dAlong = c.axis === 'z' ? Math.abs(x - c.cx) : Math.abs(z - c.cy);
+    if (dAlong > c.along) continue;
+    const dAcross = c.axis === 'z' ? Math.abs(z - c.cy) : Math.abs(x - c.cx);
+    if (dAcross <= c.across) return true;
+  }
+  return false;
+}
 
 /**
  * How far from the kerb street furniture is planted, in tiles.

@@ -3,11 +3,10 @@ import { BUILDINGS } from "./buildings";
 import { CURB, TREE_SPOTS } from "./city";
 import { hitsProp } from "./props";
 import {
-  CROSSING_REACH,
   GH,
   GW,
-  INTERSECTIONS,
   ROAD_OVERRUN,
+  onCrossing,
   inZone,
   isRoad,
   isSidewalk,
@@ -116,12 +115,9 @@ export function walkable(x: number, z: number): boolean {
   const tx = Math.floor(x);
   const tz = Math.floor(z);
   if (isSidewalk(tx, tz)) return true;
-  if (isRoad(tx, tz)) {
-    // On the carriageway only where the zebra stripes are: at a junction.
-    for (const it of INTERSECTIONS) {
-      if (Math.abs(x - it.cx) < CROSSING_REACH && Math.abs(z - it.cy) < CROSSING_REACH) return true;
-    }
-  }
+  // On the carriageway only where the zebra stripes are painted — the same
+  // rectangles the paint is built from, so what looks like a crossing is one.
+  if (isRoad(tx, tz)) return onCrossing(x, z);
   return false;
 }
 
