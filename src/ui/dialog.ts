@@ -1,12 +1,12 @@
 import { SKILL_LABEL } from "../game/state";
 import type { Npc } from "../game/quests";
 import type { Speech } from "../learn/speech";
-import { closeButton, el, speakerButton } from "./dom";
+import { closeButton, el } from "./dom";
 
 /**
  * The conversation card.
  *
- * Two rules shape this component, and they are both about keeping the player
+ * Three rules shape this component, and they are all about keeping the player
  * out on the street rather than in a menu:
  *
  *  1. **A wrong answer never ends the turn.** The option locks, the
@@ -15,6 +15,13 @@ import { closeButton, el, speakerButton } from "./dom";
  *  2. **The card can be put down.** "Walk and look" minimises it to a pill, so
  *     you can go and read the shop signs and come back to the *same* question.
  *     Walking the route is the game; the card is only where you report back.
+ *  3. **Nobody speaks.** The citizens are silent, and the card actively stops
+ *     any voice that was still going when it opened. This used to read the
+ *     question aloud the moment you walked up to somebody, and in a room of
+ *     twelve that is twelve device voices talking over each other and over the
+ *     teacher. The question is on the screen; anybody who wants to *hear* the
+ *     English can open the vocabulary checker, which is the one place in the
+ *     game that still makes a sound and the one place you go to on purpose.
  */
 
 export interface DialogHandlers {
@@ -24,14 +31,6 @@ export interface DialogHandlers {
   onMinimize(npc: Npc): void;
   onClose(): void;
 }
-
-/** Speech synthesis wants words, not markup. */
-const plain = (html: string): string =>
-  html
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 
 export class Dialog {
   current: Npc | null = null;
@@ -78,10 +77,6 @@ export class Dialog {
     this.nextButton.addEventListener("click", () => this.close());
     this.nextButton.hidden = true;
 
-    const listen = speakerButton(() => {
-      if (this.current) this.speech.speak(plain(this.current.quest.q));
-    }, "Listen to the question");
-
     this.overlay = el("div", { class: "overlay talk-overlay", "aria-hidden": "true" }, [
       el("div", { class: "overlay-scrim" }),
       el("div", { class: "card" }, [
@@ -97,7 +92,6 @@ export class Dialog {
           this.choices,
           this.explain,
           el("div", { class: "lesson-actions talk-actions" }, [
-            listen,
             this.hintButton,
             this.walkButton,
             this.nextButton,
@@ -117,6 +111,10 @@ export class Dialog {
   }
 
   show(npc: Npc): void {
+    // A conversation opens in silence. Nothing here speaks, but the vocabulary
+    // checker does, and a word left mid-sentence when it was closed would
+    // otherwise finish itself over the top of somebody's question.
+    this.speech.stop();
     this.current = npc;
     this.open = true;
     this.minimized = false;
@@ -191,7 +189,6 @@ export class Dialog {
     this.question.innerHTML = npc.done
       ? `🔁 <b>Practice round ${npc.round}</b> — let's keep going!<br>${quest.q}`
       : `<span class="talk-greet">${npc.greet}</span>${quest.q}`;
-    this.speech.speak(plain(quest.q));
 
     this.choices.replaceChildren(
       ...quest.options.map((option) => {

@@ -284,8 +284,13 @@ The one navigation aid is the gold arrow that appears over a building's roof
 when you ask a citizen for a hint. It says *over there*; you still have to walk
 it.
 
-Pronunciation uses the browser's built-in speech synthesis — every question can
-be read aloud with the speaker button. There are no audio files.
+The citizens are silent. Walking up to somebody used to read their question
+aloud, which in a room of twelve is twelve device voices talking over each other
+and over the teacher — so the question is on the screen and nothing else. The
+one place that still speaks is the 📖 vocabulary checker, where tapping a word
+or a sentence pronounces it, because that is somewhere you go on purpose. It
+uses the browser's built-in speech synthesis; there are no audio files, and 🔊
+mutes it.
 
 ## Licence
 
