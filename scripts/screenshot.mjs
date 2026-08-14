@@ -101,6 +101,63 @@ await page.screenshot({ path: `${OUT}/08-night.png` });
 await page.evaluate(() => window.__world.setHour(9));
 await page.waitForTimeout(600);
 
+// --- Family Detective: a case can be opened, filled and closed ---------------
+//
+// The loop this checks is the one that cannot be checked by looking: a citizen
+// hands over a clue, the clue crosses suspects off, and eighteen faces come
+// down to one. If the roster ever stops distinguishing everybody, `Detective`
+// throws when the case is built and the console-error check below catches it;
+// if the clues stop eliminating, the count never reaches one and this does.
+await page.evaluate(() => window.__world.startMode?.("detective"));
+await page.waitForTimeout(400);
+const detectiveErrors = [];
+{
+  const before = await page.evaluate(() => ({
+    mode: window.__world.mode.id,
+    left: window.__world.suspectsLeft(),
+  }));
+  if (before.mode !== "detective") {
+    detectiveErrors.push(`could not start Family Detective (mode is ${before.mode})`);
+  }
+
+  // Answer one citizen the way a student would, and check the file grew.
+  const clue = await page.evaluate(() => {
+    const npc = window.__world.npcs.npcs.find((n) => n.quest.clue);
+    if (!npc) return null;
+    window.__world.talkTo(npc.name);
+    return { name: npc.name, correct: npc.quest.correct, facts: window.__world.caseFacts() };
+  });
+  if (!clue) detectiveErrors.push("no citizen in the city is carrying a clue");
+  else {
+    await page.waitForTimeout(700);
+    await page.locator(".talk-overlay .quiz-option", { hasText: clue.correct }).first().click();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${OUT}/10-clue.png` });
+    const after = await page.evaluate(() => window.__world.caseFacts());
+    if (after <= clue.facts) detectiveErrors.push("a right answer did not add a clue to the file");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  }
+
+  // Fill the file, and check it comes down to exactly one person.
+  const guilty = await page.evaluate(() => window.__world.solve());
+  const left = await page.evaluate(() => window.__world.suspectsLeft());
+  if (left !== 1) detectiveErrors.push(`the whole case leaves ${left} suspects, not 1`);
+  console.log(`case: ${guilty} — ${before.left} suspects at the start, ${left} at the end`);
+
+  await page.locator('.hud-top-right button[aria-label^="Case file"]').click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/11-casefile.png` });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+
+  await page.locator('.hud-top-right button[aria-label="Vocabulary checker"]').click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/12-vocabulary.png` });
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+}
+
 // --- both bodies are the size of a person -----------------------------------
 //
 // The check this file did not have when it was needed. The robot went out
@@ -147,6 +204,10 @@ console.log(
     .map(([body, h]) => `${body} ${h.toFixed(3)}`)
     .join(", "),
 );
+if (detectiveErrors.length) {
+  console.error("Family Detective:\n" + detectiveErrors.map((e) => `  ${e}`).join("\n"));
+  process.exit(1);
+}
 if (wrong.length) {
   console.error(
     "Wrong size:\n" +
@@ -160,4 +221,4 @@ if (errors.length) {
   console.error("Console errors:\n" + errors.join("\n"));
   process.exit(1);
 }
-console.log("OK — no console errors, both bodies the right size");
+console.log("OK — no console errors, both bodies the right size, the case closes");

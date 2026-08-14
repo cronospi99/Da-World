@@ -25,6 +25,12 @@ interface HudOptions {
   onCharacter: () => void;
   /** Open the class leaderboard. */
   onLeaderboard: () => void;
+  /** Open the case file — Family Detective only. */
+  onCaseFile: () => void;
+  /** Open the vocabulary checker. */
+  onVocab: () => void;
+  /** Put the main menu back up without losing the city. */
+  onMenu: () => void;
 }
 
 export class CityHud {
@@ -42,6 +48,8 @@ export class CityHud {
   private readonly soundButton: HTMLButtonElement;
   private readonly roomButton: HTMLButtonElement;
   private readonly boardButton: HTMLButtonElement;
+  private readonly caseButton: HTMLButtonElement;
+  private readonly vocabButton: HTMLButtonElement;
 
   private toastTimer = 0;
 
@@ -118,12 +126,46 @@ export class CityHud {
     });
     this.boardButton.addEventListener("click", () => this.options.onLeaderboard());
 
+    // The case file, and the reference you check before you answer. Both are
+    // hidden outside Family Detective: the file has nothing in it, and a
+    // vocabulary of great-aunts is not what a directions lesson wants under
+    // its thumb.
+    this.caseButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "Case file",
+      text: "📓",
+    });
+    this.caseButton.addEventListener("click", () => this.options.onCaseFile());
+
+    this.vocabButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "Vocabulary checker",
+      text: "📖",
+    });
+    this.vocabButton.addEventListener("click", () => this.options.onVocab());
+
+    // The way out. It was reachable before only by opening "How to play" and
+    // scrolling — which meant that in a class, switching mode went through the
+    // teacher's laptop and a page reload.
+    const menuButton = el("button", {
+      class: "tile-button",
+      type: "button",
+      "aria-label": "Back to the main menu",
+      text: "🏠",
+    });
+    menuButton.addEventListener("click", () => this.options.onMenu());
+
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
       this.boardButton,
       this.roomButton,
+      this.caseButton,
+      this.vocabButton,
       this.soundButton,
       missionButton,
       infoButton,
+      menuButton,
     ]);
 
     this.hint = el("div", { class: "hud-hint" });
@@ -169,7 +211,26 @@ export class CityHud {
   /** The mode being played, shown on the mission panel. */
   setMode(mode: GameMode): void {
     this.mode = mode;
+    const detective = mode.id === "detective";
+    this.caseButton.classList.toggle("is-gone", !detective);
+    this.vocabButton.classList.toggle("is-gone", !detective);
     this.refresh();
+  }
+
+  /**
+   * How many suspects are left, on the case-file button.
+   *
+   * The number is the reason to look: a student who has just answered
+   * somebody sees it drop from twelve to four without opening anything, which
+   * is the fastest way this game has of saying "that answer mattered".
+   */
+  setCaseCount(left: number | null): void {
+    this.caseButton.textContent = left === null ? "📓" : String(left);
+    this.caseButton.classList.toggle("is-count", left !== null);
+    this.caseButton.setAttribute(
+      "aria-label",
+      left === null ? "Case file" : `Case file — ${left} suspects left`,
+    );
   }
 
   setStreet(name: string): void {
@@ -382,6 +443,11 @@ export class CityHud {
             el("li", { text: "Zoom — scroll, or pinch." }),
             el("li", { text: "Talk to somebody — walk up to them and press E." }),
             el("li", { text: "Re-centre the camera — press R." }),
+            el("li", { text: "Look a word up — 📖, the vocabulary checker." }),
+            el("li", { text: "Back to the menu — 🏠. Nothing is lost." }),
+            el("li", {
+              text: "In Family Detective, 📓 is your case file: what you know, and who is left.",
+            }),
           ]),
           el("p", {
             class: "info-note",

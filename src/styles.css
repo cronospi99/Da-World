@@ -2016,3 +2016,385 @@ canvas.webgl {
 .scan-status.is-bad {
   color: var(--bad);
 }
+
+/* --- Family Detective ------------------------------------------------------
+   The case file and the vocabulary checker. Both are reference pages rather
+   than lessons — nothing in here is answered, so nothing in here is a quiz
+   card. They borrow the info overlay's paper and only add what a notebook
+   needs: a list of sentences, a grid of faces, and a way to strike one out. */
+
+.case-card,
+.vocab-card {
+  width: min(760px, 94vw);
+}
+
+.case-heading {
+  margin: 18px 0 8px;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+.clue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clue {
+  padding: 8px 12px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--ink);
+  background-color: var(--paper-2);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+}
+
+.clue b {
+  color: var(--accent-deep);
+}
+
+/* Eighteen faces, small enough that the whole family is on screen at once —
+   watching a row of them grey out is the point of the panel, and it does not
+   work if you have to scroll to see it happen. */
+.suspect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.suspect {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: center;
+  padding: 8px 4px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background-color: var(--paper-2);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    opacity 0.2s ease,
+    border-color 0.14s ease;
+}
+
+.suspect:hover:not(.is-out) {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.suspect-face {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.suspect-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.suspect-rel {
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.suspect.is-picked {
+  border-color: var(--accent-deep);
+  background-color: var(--paper);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+/* Ruled out. Struck through rather than removed: a student should be able to
+   see *that* the family is being narrowed down, not just what is left. */
+.suspect.is-out {
+  opacity: 0.34;
+  cursor: default;
+}
+
+.suspect.is-out .suspect-name {
+  text-decoration: line-through;
+}
+
+.suspect.is-guilty {
+  border-color: var(--good);
+  background-color: #eef3e2;
+  opacity: 1;
+}
+
+.case-verdict {
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: 16px;
+  line-height: 1.45;
+  border-radius: 8px;
+  min-height: 0;
+}
+
+.case-verdict:empty {
+  display: none;
+}
+
+.case-verdict.is-right {
+  color: var(--good);
+  background-color: #eef3e2;
+}
+
+.case-verdict.is-wrong {
+  color: var(--bad);
+  background-color: #f8e9e5;
+}
+
+/* The suspect count rides on the case-file tile, so it can be read without
+   opening anything. */
+.tile-button.is-count {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--accent-deep);
+}
+
+/* --- the vocabulary checker ------------------------------------------------ */
+
+.vocab-body {
+  margin-top: 14px;
+}
+
+.vocab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.vocab-word {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  padding: 10px 6px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background-color: var(--paper-2);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.vocab-word:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.vocab-word.is-chosen {
+  border-color: var(--accent-deep);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.vocab-emoji {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.vocab-term {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+}
+
+.vocab-defn,
+.vocab-syn {
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.vocab-syn {
+  font-style: italic;
+}
+
+/* The frequency scale, in the order the worksheet drew it: percentage, word,
+   and a sentence you can hear. */
+.freq-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.freq-row {
+  display: grid;
+  grid-template-columns: 56px minmax(96px, auto) 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.freq-row:hover {
+  background-color: var(--paper);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.freq-pct,
+.freq-word {
+  padding: 5px 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+}
+
+.freq-ex {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.order-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: var(--paper-2);
+}
+
+.order-label {
+  min-width: 96px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.order-boxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.order-box {
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  text-transform: uppercase;
+  background-color: var(--accent);
+  border-radius: 6px;
+}
+
+.order-arrow {
+  color: var(--ink-soft);
+}
+
+.order-ex {
+  flex-basis: 100%;
+  font-size: 15px;
+  font-style: italic;
+  color: var(--accent-deep);
+}
+
+.rule-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-left: 5px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background-color: var(--paper-2);
+}
+
+.rule-box h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--accent-deep);
+}
+
+.rule-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.rule-wrong {
+  color: var(--bad);
+  text-decoration: line-through;
+}
+
+.rule-right {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.check-block {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background-color: var(--paper-2);
+}
+
+/* The gap a frequency clue leaves in its sentence. */
+.blank {
+  display: inline-block;
+  min-width: 62px;
+  padding: 0 6px;
+  font-weight: 800;
+  color: var(--accent-deep);
+  text-align: center;
+  border-bottom: 3px solid var(--accent);
+}
+
+@media (max-width: 560px) {
+  .suspect-grid {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  }
+
+  .vocab-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  }
+
+  .freq-row {
+    grid-template-columns: 48px 1fr;
+  }
+
+  .freq-ex {
+    grid-column: 1 / -1;
+  }
+
+  .order-label {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+}
+
+/* The tile column grew by three — the case file, the vocabulary checker and
+   the way back to the menu. Eight tiles is still a comfortable stack on a
+   phone held upright, but on a short landscape screen it would run off the
+   bottom and take the "?" with it, so there it wraps into two columns
+   instead. */
+@media (max-height: 560px) {
+  .hud-top-right {
+    flex-flow: column wrap;
+    align-content: flex-end;
+    max-height: calc(100vh - 52px);
+    gap: 8px;
+  }
+}

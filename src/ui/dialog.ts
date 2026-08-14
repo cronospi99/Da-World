@@ -1,4 +1,4 @@
-import { GRAMMAR_TAG_LABEL } from "../game/grammar";
+import { SKILL_LABEL } from "../game/state";
 import type { Npc } from "../game/quests";
 import type { Speech } from "../learn/speech";
 import { closeButton, el, speakerButton } from "./dom";
@@ -24,12 +24,6 @@ export interface DialogHandlers {
   onMinimize(npc: Npc): void;
   onClose(): void;
 }
-
-const TAG_LABEL: Record<string, string> = {
-  ...GRAMMAR_TAG_LABEL,
-  directions: "giving directions",
-  prepositions: "prepositions of place",
-};
 
 /** Speech synthesis wants words, not markup. */
 const plain = (html: string): string =>
@@ -132,7 +126,7 @@ export class Dialog {
     this.face.textContent = npc.face;
     this.name.textContent = npc.name;
     this.role.textContent = npc.role;
-    this.tag.textContent = TAG_LABEL[npc.quest.tag] ?? npc.quest.tag;
+    this.tag.textContent = SKILL_LABEL[npc.quest.tag] ?? npc.quest.tag;
     this.render(npc);
   }
 
@@ -179,7 +173,11 @@ export class Dialog {
     // practice mode and keep dealing, so they are still worth talking to.
     const finished = npc.done && !npc.practice;
     this.hintButton.hidden = finished;
-    this.walkButton.hidden = finished || !quest.target;
+    // Somewhere to go and something to check: a place quest sends you out to
+    // read a shop sign, a clue sends you to the case file. Both are reasons to
+    // put the card down without losing the question, and the button says which.
+    this.walkButton.hidden = finished || (!quest.target && quest.kind !== "clue");
+    this.walkButton.textContent = quest.target ? "🚶 Walk and look" : "📓 Check the case file";
 
     if (finished) {
       this.question.innerHTML = quest.target

@@ -1,7 +1,6 @@
 import { MISSION_GROUPS, MISSIONS, type Mission } from "../game/missions";
 import { MODE_LIST, type GameMode } from "../game/modes";
-import { GRAMMAR_TAG_LABEL } from "../game/grammar";
-import type { GameState, SkillTag } from "../game/state";
+import { SKILL_LABEL, type GameState, type SkillTag } from "../game/state";
 import { closeButton, el } from "./dom";
 
 /**
@@ -257,14 +256,9 @@ export class TeacherPanel {
 
   /** First-try accuracy per language point — the number a teacher marks from. */
   private rows(): { tag: SkillTag; label: string; asked: number; correct: number; firstTry: number }[] {
-    const labels: Record<string, string> = {
-      ...GRAMMAR_TAG_LABEL,
-      directions: "giving directions",
-      prepositions: "prepositions of place",
-    };
     return Object.entries(this.state.skills).map(([tag, stat]) => ({
       tag: tag as SkillTag,
-      label: labels[tag] ?? tag,
+      label: SKILL_LABEL[tag] ?? tag,
       asked: stat.asked,
       correct: stat.correct,
       firstTry: stat.firstTry,

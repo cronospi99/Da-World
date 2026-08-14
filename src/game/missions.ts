@@ -34,6 +34,7 @@ export const MISSION_GROUPS: { id: MissionGroup; icon: string; label: string }[]
   { id: "vocabulary", icon: "🏷️", label: "Vocabulary" },
   { id: "grammar", icon: "✏️", label: "Grammar" },
   { id: "directions", icon: "🧭", label: "Directions" },
+  { id: "family", icon: "🕵️", label: "Family & how often" },
 ];
 
 /** Correct answers recorded for one language point. */
@@ -138,6 +139,61 @@ const GRAMMAR: Mission[] = GRAMMAR_TAGS.map((tag) => ({
   group: VOCABULARY_POINTS.has(tag) ? "vocabulary" : "grammar",
 }));
 
+/**
+ * Family Detective's goals.
+ *
+ * The three language points are listed separately from "solve a case" on
+ * purpose: closing a case is the story, but a student can close one on five
+ * lucky clues, and what the teacher wants on the board is whether the adverb
+ * went in the right place eight times. The case is the reason to walk; these
+ * are the reason it counts.
+ */
+const FAMILY: Mission[] = [
+  {
+    id: "f1",
+    icon: "🔍",
+    label: "Write 12 clues into the case file",
+    goal: 12,
+    get: (s) => s.cluesFound,
+    group: "family",
+  },
+  {
+    id: "f2",
+    icon: "📊",
+    label: "Choose the right adverb of frequency 8 times",
+    goal: 8,
+    get: scored("frequency"),
+    tag: "frequency",
+    group: "family",
+  },
+  {
+    id: "f3",
+    icon: "🔤",
+    label: "Put the adverb in the right place 5 times",
+    goal: 5,
+    get: scored("word-order"),
+    tag: "word-order",
+    group: "family",
+  },
+  {
+    id: "f4",
+    icon: "👨‍👩‍👧‍👦",
+    label: "Name 6 family relations correctly",
+    goal: 6,
+    get: scored("family"),
+    tag: "family",
+    group: "family",
+  },
+  {
+    id: "f5",
+    icon: "🕵️",
+    label: "Close 3 cases — name the right person",
+    goal: 3,
+    get: (s) => s.casesSolved,
+    group: "family",
+  },
+];
+
 const CROWN: Mission = {
   id: "m-champion",
   icon: "👑",
@@ -147,7 +203,7 @@ const CROWN: Mission = {
   group: "explore",
 };
 
-export const MISSIONS: Mission[] = [...EXPLORE, ...GRAMMAR, CROWN];
+export const MISSIONS: Mission[] = [...EXPLORE, ...GRAMMAR, ...FAMILY, CROWN];
 
 /**
  * The missions a mode is played for.

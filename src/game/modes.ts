@@ -15,10 +15,10 @@ import type { QuestKind } from "../city/npcData";
  * say.
  */
 
-export type GameModeId = "vocabulary" | "directions" | "multiplayer";
+export type GameModeId = "vocabulary" | "directions" | "detective" | "multiplayer";
 
 /** Groups the missions are shown in, and that a mode draws its goals from. */
-export type MissionGroup = "explore" | "vocabulary" | "grammar" | "directions";
+export type MissionGroup = "explore" | "vocabulary" | "grammar" | "directions" | "family";
 
 export interface GameMode {
   id: GameModeId;
@@ -66,6 +66,21 @@ export const MODES: Record<GameModeId, GameMode> = {
     kinds: ["directions"],
     groups: ["explore", "directions"],
   },
+  detective: {
+    id: "detective",
+    name: "Family Detective",
+    icon: "🕵️",
+    blurb: "Someone in the family is hiding. Collect the clues and name them.",
+    covers: [
+      "adverbs of frequency: always → never",
+      "where the adverb goes, with a verb and with BE",
+      "never and hardly ever take a positive verb",
+      "the words for a family, from grandmother to great-uncle",
+      "one suspect out of eighteen, and only the English will tell you which",
+    ],
+    kinds: ["clue"],
+    groups: ["explore", "family"],
+  },
   multiplayer: {
     id: "multiplayer",
     name: "Class",
@@ -87,6 +102,7 @@ export const MODES: Record<GameModeId, GameMode> = {
 export const MODE_LIST: GameMode[] = [
   MODES.vocabulary,
   MODES.directions,
+  MODES.detective,
   MODES.multiplayer,
 ];
 

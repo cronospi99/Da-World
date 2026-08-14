@@ -27,6 +27,7 @@ and everybody else scans its QR code.
 | --- | --- |
 | **Vocabulary** | There is / there are, some / any / no, much / many / a lot of, prepositions of place, and the words for a city |
 | **Directions** | Go straight on, turn left, count the blocks, name the street |
+| **Family Detective** | Adverbs of frequency, where the adverb goes, and the words for a family — used to work out which of eighteen relatives the city is hiding |
 | **Class** | Up to twelve people in the same city, joined by scanning a code |
 
 A mode is not a different city. It is the same ninety-one places and the same
@@ -163,13 +164,43 @@ Thirty-two citizens, each with one question generated from the city itself:
   about a street, a shop or a park that really exists, so if you are unsure you
   can walk there and look. Grammar citizens never run out: answer one and they
   deal the next from the bank.
+- **Clues.** In Family Detective every citizen is holding one fact about the
+  person you are looking for, and the only way to get it is to finish their
+  sentence: *"she ___ bakes cookies — every single time"*. Answer `always` and
+  the fact goes into your 📓 case file and strikes out everybody it does not
+  fit; eighteen faces come down to one. The wrong options are the mistakes the
+  worksheet warns about — *he isn't never late*, *he watches never films* — so
+  choosing one is a mistake with a name. You cannot guess your way out: the
+  family will not hear an accusation until the file holds five facts.
+
+### Family Detective
+
+The eighteen suspects come off a real family tree, and every family word is
+held by exactly two of them — two grandfathers, two great-aunts — so *"she is
+my parent's sister"* narrows the field without ending the case. Each of them
+has a different six-habit routine, which is what guarantees the clues can
+always tell them apart; the game says so out loud rather than hoping, and
+refuses to start a case it cannot prove is solvable.
+
+Two buttons ride along with it. 📓 is the case file — what you know, who is
+left, and where you name somebody; the tile itself shows how many suspects are
+still standing, so an answer that rules four people out says so before you open
+anything. 📖 is the vocabulary checker: the frequency scale, the three
+word-order patterns, the rule about `never` and `hardly ever`, and all
+twenty-three family words, any of them read aloud by the device voice. Nothing
+in the checker is graded — the XP is out on the street, which is where the
+lesson is.
+
+A case survives a reload. It is stored as a seed and a handful of fact ids, so
+a phone that locks mid-lesson comes back to the same culprit and the same
+notebook rather than to a fresh one.
 
 A wrong answer never ends the turn — the option locks, the explanation appears,
 and you try again. **Walk and look** puts the card down as a pill so you can go
 and read the shop signs and come back to the *same* question, which is the whole
 point: the answer is out there in the city, not in the card.
 
-Fifteen missions run down the left of the screen, one at a time, from "walk past
+Twenty missions run down the left of the screen, one at a time, from "walk past
 25 places" through "guide 5 lost citizens" to mastering each language point.
 Correct answers are the only source of XP, XP is the only source of levels, and
 everything is saved in your browser.

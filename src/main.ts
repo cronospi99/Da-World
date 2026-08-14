@@ -18,7 +18,8 @@ import { setTextureAnisotropy } from "./city/textures";
 import { Traffic } from "./city/traffic";
 import { missionsFor, type Mission } from "./game/missions";
 import { MODES, rememberMode, type GameMode } from "./game/modes";
-import { refreshGrammarQuest, type Npc } from "./game/quests";
+import { advanceQuest, type Npc } from "./game/quests";
+import { Detective, type Suspect } from "./game/detective";
 import {
   clearSave,
   createState,
@@ -26,6 +27,7 @@ import {
   loadState,
   saveState,
   statFor,
+  XP_CASE_CLOSED,
   XP_PER_CORRECT,
   XP_PRACTICE,
   XP_WITH_HINT,
@@ -40,6 +42,8 @@ import {
 } from "./game/appearance";
 import { drawnBounds } from "./game/characterModel";
 import { CharacterPanel } from "./ui/character";
+import { CaseFile } from "./ui/casefile";
+import { VocabCheck } from "./ui/vocabCheck";
 import { Leaderboard, type LeaderRow } from "./ui/leaderboard";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
@@ -125,6 +129,15 @@ async function boot(): Promise<void> {
   /** True once a mode has been started, so the HUD and controls are live. */
   let playing = false;
   let missions: Mission[] = missionsFor(mode);
+
+  /**
+   * The open case, in Family Detective, and null in every other mode.
+   *
+   * It is built before the crowd because the crowd is built *out of* it —
+   * every citizen is handed one of the case's clues — and it outlives a
+   * reload, restored from the seed and the fact ids in the save file.
+   */
+  let detective: Detective | null = null;
   let npcs = new Npcs(mode);
   engine.scene.add(npcs.group);
 
@@ -176,9 +189,37 @@ async function boot(): Promise<void> {
       leaderboard.toggle(true);
       syncInput();
     },
+    onCaseFile: () => {
+      caseFile.setCase(detective);
+      caseFile.toggle(true);
+      syncInput();
+    },
+    onVocab: () => {
+      vocab.toggle(true);
+      syncInput();
+    },
+    // Back to the front door. Nothing is thrown away — the save has already
+    // been written on every answer, and the city itself is still standing
+    // behind the panel.
+    onMenu: () => {
+      saveState(state);
+      menu.show();
+      syncInput();
+    },
   });
 
   const leaderboard = new Leaderboard(ui, () => syncInput());
+
+  const vocab = new VocabCheck(ui, speech, () => syncInput());
+
+  const caseFile = new CaseFile(ui, {
+    onAccuse: (suspect: Suspect) => accuse(suspect),
+    onNewCase: () => {
+      openCase(null);
+      hud.showToast("🔎", "A new case", "Eighteen suspects again. Go and ask somebody.");
+    },
+    onClose: () => syncInput(),
+  });
 
   /** The building a hint is pointing at, if any. */
   const hintTarget = (): Building | null =>
@@ -210,6 +251,71 @@ async function boot(): Promise<void> {
       refreshBoard();
     }
     hud.refresh();
+  }
+
+  /* --------------------------- the case ---------------------------------- */
+
+  /**
+   * Open a case: the saved one if there is one, otherwise a fresh culprit.
+   *
+   * Rebuilding the crowd is not optional here — the citizens hold the clues,
+   * so a new case with the old crowd would be thirty-two people telling you
+   * about the wrong person. `startMode` does the rebuild for the first case;
+   * "New case" from the file has to ask for it.
+   */
+  function openCase(seed: number | null): void {
+    const actual = seed ?? (Date.now() & 0x7fffffff);
+    detective = new Detective(actual);
+    if (seed === null) state.caseFacts = [];
+    else detective.restore(state.caseFacts);
+    state.caseSeed = actual;
+    rememberCase();
+    rebuildCrowd();
+    refreshCaseUi();
+  }
+
+  /** Write the case down, so a locked phone does not cost an hour's work. */
+  function rememberCase(): void {
+    state.caseFacts = detective ? detective.factIds() : [];
+    saveState(state);
+  }
+
+  function refreshCaseUi(): void {
+    hud.setCaseCount(detective && !detective.solved ? detective.remaining.length : null);
+    caseFile.setCase(detective);
+  }
+
+  /** Rebuild the citizens for the current mode and case, keeping progress. */
+  function rebuildCrowd(): void {
+    engine.scene.remove(npcs.group);
+    npcs = new Npcs(mode, detective);
+    npcs.applyProgress(state.helped);
+    engine.scene.add(npcs.group);
+    player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
+    near = null;
+    if (dialog.open || dialog.minimized) dialog.close();
+  }
+
+  function accuse(suspect: Suspect) {
+    const result = detective!.accuse(suspect);
+    if (result.right) {
+      state.casesSolved++;
+      addXp(XP_CASE_CLOSED);
+      // The case is over, so there is nothing left to restore: a reload now
+      // should deal a new culprit rather than reopen a solved file.
+      state.caseSeed = null;
+      state.caseFacts = [];
+      hud.showToast(
+        "🕵️",
+        `+${XP_CASE_CLOSED} XP — case closed!`,
+        `It was ${suspect.name}, your ${suspect.relation.toLowerCase()}.`,
+      );
+      checkMissions();
+      saveState(state);
+      reportProgress();
+    }
+    refreshCaseUi();
+    return result;
   }
 
   function addXp(amount: number): void {
@@ -244,14 +350,38 @@ async function boot(): Promise<void> {
         state.hintTargetId = null;
       }
       npcs.refreshMarker(npc.id);
+
+      // A clue is the point of the answer, not a reward for it: getting the
+      // adverb right is *how* you learn something about the person you are
+      // hunting. Somebody else may have already told you the same thing, in
+      // which case the English still counted and the file simply does not
+      // grow — and saying so is kinder than a silent nothing.
+      const clue = npc.quest.clue;
+      let learned = false;
+      if (clue && detective) {
+        learned = detective.collect(clue);
+        if (learned) {
+          state.cluesFound++;
+          rememberCase();
+        }
+        refreshCaseUi();
+      }
+
       hud.showToast(
-        "✅",
+        learned ? "🔍" : "✅",
         `+${xp} XP`,
-        repeat ? "Practice round — nicely done." : `${npc.name} knows the way now.`,
+        learned
+          ? `New clue — ${detective!.remaining.length} suspects left.`
+          : clue
+            ? "You already knew that one, but the English still counts."
+            : repeat
+              ? "Practice round — nicely done."
+              : `${npc.name} knows the way now.`,
       );
-      // Grammar citizens immediately draw the next item from the bank, so a
-      // language point can be drilled without hunting for a new face.
-      refreshGrammarQuest(npc);
+      // Grammar citizens draw the next item from the bank and clue citizens
+      // fall back to frequency practice, so a language point can be drilled
+      // without hunting for a new face.
+      advanceQuest(npc);
       checkMissions();
       saveState(state);
       reportProgress();
@@ -274,7 +404,9 @@ async function boot(): Promise<void> {
     teacher.isOpen ||
     lobby.isOpen ||
     character.isOpen ||
-    leaderboard.isOpen;
+    leaderboard.isOpen ||
+    caseFile.isOpen ||
+    vocab.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -305,6 +437,8 @@ async function boot(): Promise<void> {
 
   input.onCancel(() => {
     if (dialog.open) dialog.close();
+    else if (caseFile.isOpen) caseFile.toggle(false);
+    else if (vocab.isOpen) vocab.toggle(false);
     else if (leaderboard.isOpen) leaderboard.toggle(false);
     else if (character.isOpen) character.toggle(false);
     else if (lobby.isOpen) lobby.dismiss();
@@ -408,20 +542,26 @@ async function boot(): Promise<void> {
     mode = next;
     missions = missionsFor(mode);
     rememberMode(mode.id);
+    hud.setMode(mode);
 
-    engine.scene.remove(npcs.group);
-    npcs = new Npcs(mode);
-    npcs.applyProgress(state.helped);
-    engine.scene.add(npcs.group);
-    player.body.crowd = (x, z) => npcs.blocks(x, z, BODY_RADIUS);
-    near = null;
+    // Family Detective needs a culprit before it has a crowd, because the
+    // crowd is what carries the clues. An unfinished case is picked up where
+    // it was left — including across a reload, which is the whole reason the
+    // seed is in the save file — and anything else starts a fresh one.
+    if (mode.id === "detective" && (!detective || detective.solved)) {
+      // Opens the case *and* rebuilds the crowd around it — the citizens are
+      // dealt their clues at the moment the culprit is chosen.
+      openCase(state.caseSeed);
+    } else {
+      if (mode.id !== "detective") detective = null;
+      rebuildCrowd();
+      refreshCaseUi();
+    }
 
     playing = true;
     menu.hide();
-    hud.setMode(mode);
     checkMissions();
     syncInput();
-
   }
 
   /* --------------------------- the class -------------------------------- */
@@ -824,6 +964,31 @@ async function boot(): Promise<void> {
     wear: (kind: BodyKind) => character.wearBody(kind),
     /** True once the robot has downloaded and is the body on screen. */
     robotReady: (): boolean => player.wearingRobot,
+    /**
+     * The open case, for the smoke test and for a lesson that has got stuck.
+     *
+     * `solve()` answers every clue-carrying citizen the way the student would
+     * have, which is how the smoke test walks a whole case without knowing
+     * anything about adverbs.
+     */
+    /** Switch mode from the console or the smoke test, as the menu would. */
+    startMode: (id: string) => {
+      const next = MODES[id as keyof typeof MODES];
+      if (next) startMode(next);
+      return mode.id;
+    },
+    detective: () => detective,
+    caseFacts: () => detective?.collected.length ?? 0,
+    suspectsLeft: () => detective?.remaining.length ?? 0,
+    solve: (): string | null => {
+      if (!detective) return null;
+      for (const npc of npcs.npcs) {
+        if (npc.quest.clue && detective.collect(npc.quest.clue)) state.cluesFound++;
+      }
+      rememberCase();
+      refreshCaseUi();
+      return detective.secret.name;
+    },
     /**
      * How tall the body currently on screen actually draws, in world units.
      *
