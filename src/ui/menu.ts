@@ -1,5 +1,6 @@
 import { MISSION_GROUPS, MISSIONS, type Mission } from "../game/missions";
 import { MODE_LIST, lastMode, type GameMode, type GameModeId } from "../game/modes";
+import { MAX_TARGET, NO_RACE, clampTarget, raceLabel } from "../game/race";
 import { QUALITY, type QualityName } from "../core/quality";
 import type { GameState } from "../game/state";
 import { el } from "./dom";
@@ -14,14 +15,20 @@ import { el } from "./dom";
  * the front of a class had to scroll to find the thing they came for.
  *
  * So it is a menu now: a title, one button that starts the game, and a short
- * list of the five other places you might want to go. Each of those opens over
- * the same panel and comes back with Back, which means the first screen is
- * always four words and a button, and the depth is only there for the people
- * who went looking for it.
+ * list of the other places you might want to go. Each of those opens over the
+ * same panel and comes back with Back, which means the first screen is always
+ * four words and a button, and the depth is only there for the people who went
+ * looking for it.
  *
  * The mission list is still grouped the way a syllabus is — exploring,
- * vocabulary, grammar, directions — because fifteen goals in a flat list is a
- * wall of text nobody reads and four headings you can open is a lesson plan.
+ * vocabulary, grammar, directions, family — because twenty goals in a flat list
+ * is a wall of text nobody reads and five headings you can open is a lesson
+ * plan.
+ *
+ * 🏁 is the one tile that is not a settings page. The race used to be set from
+ * the teacher panel, which is behind a passphrase and only reachable once
+ * everybody is already walking around — the wrong moment for a rule you are
+ * meant to announce before the whistle.
  */
 
 export interface MenuHandlers {
@@ -30,9 +37,11 @@ export interface MenuHandlers {
   onTeacher(): void;
   /** Open the character customiser. */
   onCharacter(): void;
+  /** How many missions win the match. 0 is no race. */
+  onSetTarget(missions: number): void;
 }
 
-type View = "home" | "modes" | "missions" | "graphics";
+type View = "home" | "modes" | "missions" | "graphics" | "race";
 
 export class Menu {
   private readonly root: HTMLElement;
@@ -44,15 +53,22 @@ export class Menu {
   private readonly graphicsTile: HTMLElement;
   private readonly missionBook: HTMLElement;
   private readonly modeCards = new Map<GameModeId, HTMLElement>();
+  private readonly raceTile: HTMLElement;
+  private readonly raceNumber: HTMLElement;
+  private readonly raceCaption: HTMLElement;
+  private readonly raceChips: HTMLElement;
   private selected: GameMode;
   private quality: QualityName;
+  private target: number;
 
   constructor(
     parent: HTMLElement,
     private readonly state: GameState,
     quality: QualityName,
+    target: number,
     private readonly handlers: MenuHandlers,
   ) {
+    this.target = clampTarget(target);
     const remembered = lastMode();
     this.selected = MODE_LIST.find((m) => m.id === remembered) ?? MODE_LIST[0];
     this.quality = quality;
@@ -80,6 +96,9 @@ export class Menu {
       () => together && this.handlers.onStart(together),
     );
     this.missionTile = this.tile("🎯", "Missions", "", () => this.show("missions"));
+    // Before the whistle, not halfway through the lesson: this is the one
+    // setting a teacher wants to announce to a room before anybody moves.
+    this.raceTile = this.tile("🏁", "Win the match", "", () => this.show("race"));
     this.graphicsTile = this.tile("⚙️", "Graphics", "", () => this.show("graphics"));
     const teacherTile = this.tile(
       "👩‍🏫",
@@ -99,6 +118,10 @@ export class Menu {
 
     this.missionBook = el("div", { class: "mission-book" });
 
+    this.raceNumber = el("div", { class: "race-number" });
+    this.raceCaption = el("p", { class: "info-note race-caption" });
+    this.raceChips = el("div", { class: "chip-row" });
+
     this.views = {
       home: el("div", { class: "menu-view" }, [
         el("div", { class: "menu-actions" }, [this.playButton]),
@@ -106,6 +129,7 @@ export class Menu {
           this.modeTile,
           characterTile,
           classTile,
+          this.raceTile,
           this.missionTile,
           this.graphicsTile,
           teacherTile,
@@ -123,6 +147,21 @@ export class Menu {
           text: "Every mission in the game, whichever mode you play. Your progress is kept when you switch.",
         }),
         this.missionBook,
+        el("div", { class: "menu-actions" }, [this.backButton()]),
+      ]),
+      race: el("div", { class: "menu-view is-hidden" }, [
+        el("h2", { class: "menu-section", text: "Win the match" }),
+        el("p", {
+          class: "info-note",
+          text: "How many missions each student has to finish to win. The first one there ends the match for everybody — the screen fades out and the final table comes up. It works on one laptop as well as in a class of twelve.",
+        }),
+        el("div", { class: "race-setter" }, [
+          this.stepButton("−", -1),
+          this.raceNumber,
+          this.stepButton("+", 1),
+        ]),
+        this.raceCaption,
+        this.raceChips,
         el("div", { class: "menu-actions" }, [this.backButton()]),
       ]),
       graphics: el("div", { class: "menu-view is-hidden" }, [
@@ -148,11 +187,13 @@ export class Menu {
         this.views.home,
         this.views.modes,
         this.views.missions,
+        this.views.race,
         this.views.graphics,
       ]),
     ]);
 
     parent.append(this.root);
+    this.renderRace();
     this.select(this.selected);
   }
 
@@ -170,6 +211,7 @@ export class Menu {
       node.classList.toggle("is-hidden", name !== view);
     }
     if (view === "missions") this.renderMissions();
+    if (view === "race") this.renderRace();
     this.refresh();
   }
 
@@ -199,6 +241,68 @@ export class Menu {
     return tile;
   }
 
+  /** One end of the − / + pair either side of the number. */
+  private stepButton(glyph: string, delta: number): HTMLButtonElement {
+    const button = el("button", {
+      class: "race-step",
+      type: "button",
+      "aria-label": delta > 0 ? "One more mission" : "One fewer mission",
+      text: glyph,
+    }) as HTMLButtonElement;
+    button.addEventListener("click", () => this.setTarget(this.target + delta));
+    return button;
+  }
+
+  /**
+   * Set the number, tell the game, and redraw.
+   *
+   * The stepper and the presets both come through here rather than each
+   * writing the field, so there is one place where the number is clamped —
+   * a race of minus one, or of thirty when the game has twenty missions, is a
+   * match with no finish line.
+   */
+  private setTarget(next: number): void {
+    const clamped = clampTarget(next);
+    if (clamped === this.target) return;
+    this.target = clamped;
+    this.handlers.onSetTarget(clamped);
+    this.renderRace();
+  }
+
+  /** Let the teacher panel's copy of the number win when it changes there. */
+  setRaceTarget(target: number): void {
+    this.target = clampTarget(target);
+    this.renderRace();
+  }
+
+  private renderRace(): void {
+    this.raceNumber.textContent = this.target > NO_RACE ? String(this.target) : "—";
+    this.raceCaption.textContent = raceLabel(this.target);
+    this.setBlurb(this.raceTile, raceLabel(this.target));
+
+    // The stepper is for choosing a number; these are for the four a teacher
+    // actually picks — a short lesson, a long one, a double period, and the
+    // whole game — plus the way to turn the race off again.
+    const presets: { label: string; value: number }[] = [
+      { label: "No race", value: NO_RACE },
+      { label: "3", value: 3 },
+      { label: "5", value: 5 },
+      { label: "8", value: 8 },
+      { label: `All ${MAX_TARGET}`, value: MAX_TARGET },
+    ];
+    this.raceChips.replaceChildren(
+      ...presets.map((preset) => {
+        const chip = el("button", {
+          class: preset.value === this.target ? "chip-button is-chosen" : "chip-button",
+          type: "button",
+          text: preset.label,
+        });
+        chip.addEventListener("click", () => this.setTarget(preset.value));
+        return chip;
+      }),
+    );
+  }
+
   private setBlurb(tile: HTMLElement, text: string): void {
     const blurb = tile.querySelector(".tile-blurb");
     if (blurb) blurb.textContent = text;
@@ -213,6 +317,7 @@ export class Menu {
     this.setBlurb(this.modeTile, `${this.selected.name} — ${this.selected.blurb}`);
     const done = MISSIONS.filter((m) => this.state.missionsDone.has(m.id)).length;
     this.setBlurb(this.missionTile, `${done} of ${MISSIONS.length} done.`);
+    this.setBlurb(this.raceTile, raceLabel(this.target));
     this.setBlurb(this.graphicsTile, QUALITY[this.quality].label);
   }
 

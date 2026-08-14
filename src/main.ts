@@ -44,6 +44,9 @@ import { drawnBounds } from "./game/characterModel";
 import { CharacterPanel } from "./ui/character";
 import { CaseFile } from "./ui/casefile";
 import { VocabCheck } from "./ui/vocabCheck";
+import { Confirm } from "./ui/confirm";
+import { MatchOver } from "./ui/matchover";
+import { clampTarget, loadRaceTarget, raceLabel, saveRaceTarget } from "./game/race";
 import { Leaderboard, type LeaderRow } from "./ui/leaderboard";
 import { CityHud } from "./ui/cityHud";
 import { Menu } from "./ui/menu";
@@ -206,6 +209,15 @@ async function boot(): Promise<void> {
       menu.show();
       syncInput();
     },
+    onWipe: () => {
+      confirm.ask(
+        "Start the missions again?",
+        "Every finished mission goes back to zero, and so does everything they count — places found, citizens helped, XP and your level. The city, your character and the mode stay exactly as they are.",
+        "🧹 Wipe them",
+        () => wipeProgress(),
+      );
+      syncInput();
+    },
   });
 
   const leaderboard = new Leaderboard(ui, () => syncInput());
@@ -219,6 +231,30 @@ async function boot(): Promise<void> {
       hud.showToast("🔎", "A new case", "Eighteen suspects again. Go and ask somebody.");
     },
     onClose: () => syncInput(),
+  });
+
+  const confirm = new Confirm(ui, () => syncInput());
+
+  const matchOver = new MatchOver(ui, {
+    onNewMatch: () => {
+      matchOver.hide();
+      wipeProgress();
+      hud.showToast("🏁", "New match", raceLabel(winTarget));
+      syncInput();
+    },
+    // The city is still there behind the black, and somebody who has just
+    // watched a classmate win may well want to go on finishing what they were
+    // doing. Losing is not being thrown out.
+    onKeepPlaying: () => {
+      matchOver.hide();
+      syncInput();
+    },
+    onMenu: () => {
+      matchOver.hide();
+      saveState(state);
+      menu.show();
+      syncInput();
+    },
   });
 
   /** The building a hint is pointing at, if any. */
@@ -244,13 +280,94 @@ async function boot(): Promise<void> {
     if (finished) reportProgress();
 
     // Off the network the race still counts, and there is nobody to referee
-    // it: one player, one target, and the moment they reach it they have won.
-    if (!net.connected && winTarget > 0 && !winner && state.missionsDone.size >= winTarget) {
+    // it: one player, one target, and the moment they *cross* it they have won.
+    // `playing` is not a formality: `checkMissions()` runs once at boot, while
+    // the menu is still up, and a saved game that is already past the line
+    // would otherwise fade the menu to black and announce a match nobody had
+    // started. A match cannot end before it begins.
+    if (
+      playing &&
+      !net.connected &&
+      winTarget > 0 &&
+      raceArmedAt < winTarget &&
+      !winner &&
+      state.missionsDone.size >= winTarget
+    ) {
       winner = { id: myId, name: myName };
-      hud.showToast("🏆", "You won!", `${winTarget} missions finished.`);
       refreshBoard();
+      endMatch();
     }
     hud.refresh();
+  }
+
+  /**
+   * Somebody got there. Take the screen.
+   *
+   * Everything that could be sitting on top of the city is shut first, because
+   * the fade goes over all of it and a half-open case file behind a black
+   * screen is what the player comes back to when they dismiss the result.
+   */
+  function endMatch(): void {
+    hud.clearToast();
+    if (dialog.open || dialog.minimized) dialog.close();
+    leaderboard.toggle(false);
+    caseFile.toggle(false);
+    vocab.toggle(false);
+    confirm.toggle(false);
+    matchOver.show({
+      rows: boardRows(),
+      target: winTarget,
+      winner,
+      // In a room the race belongs to whoever is holding it open. A student
+      // restarting it for themselves would be resetting their own score in the
+      // middle of everybody else's match.
+      canRestart: !net.connected || !!host,
+    });
+    syncInput();
+  }
+
+  /**
+   * Put the missions back to zero, without touching the city.
+   *
+   * It has to clear more than `missionsDone`, and that is the whole subtlety:
+   * a mission is not a flag, it is a *reading* of a counter — "walk past 25
+   * places" is true whenever `found` has 25 things in it. Clear the flags
+   * alone and `checkMissions()` immediately re-ticks every one of them, and
+   * the button appears to do nothing at all. So everything the missions count
+   * goes with them, XP and level included, since a level is only ever the sum
+   * of answers already given.
+   *
+   * What survives is everything that is not a score: the city, your character,
+   * the mode, the open case, and the race you are about to run again.
+   */
+  /** Start the clock on a race: from here, `winTarget` more missions win it. */
+  function armRace(): void {
+    raceArmedAt = state.missionsDone.size;
+  }
+
+  function wipeProgress(): void {
+    state.found.clear();
+    state.helped.clear();
+    state.missionsDone.clear();
+    state.skills = {};
+    state.correct = 0;
+    state.attempts = 0;
+    state.score = 0;
+    state.level = 1;
+    state.champion = false;
+    state.casesSolved = 0;
+    state.cluesFound = 0;
+    state.hintTargetId = null;
+    state.focusMissionId = null;
+    winner = null;
+    armRace();
+    // The citizens carry their own "already helped" flag, so they have to be
+    // rebuilt or the city stays covered in ✅ over people with questions again.
+    rebuildCrowd();
+    hud.refresh();
+    refreshBoard();
+    saveState(state);
+    reportProgress();
   }
 
   /* --------------------------- the case ---------------------------------- */
@@ -406,7 +523,9 @@ async function boot(): Promise<void> {
     character.isOpen ||
     leaderboard.isOpen ||
     caseFile.isOpen ||
-    vocab.isOpen;
+    vocab.isOpen ||
+    confirm.isOpen ||
+    matchOver.isOpen;
   function syncInput(): void {
     const paused = busy();
     input.enabled = !paused;
@@ -436,7 +555,13 @@ async function boot(): Promise<void> {
   input.onInteract(() => tryTalk());
 
   input.onCancel(() => {
-    if (dialog.open) dialog.close();
+    // Escape out of the result screen is "keep exploring" — the city is still
+    // there, and a screen with no way out but a click is a trap on a keyboard.
+    if (matchOver.isOpen) {
+      matchOver.hide();
+      syncInput();
+    } else if (confirm.isOpen) confirm.toggle(false);
+    else if (dialog.open) dialog.close();
     else if (caseFile.isOpen) caseFile.toggle(false);
     else if (vocab.isOpen) vocab.toggle(false);
     else if (leaderboard.isOpen) leaderboard.toggle(false);
@@ -560,7 +685,19 @@ async function boot(): Promise<void> {
 
     playing = true;
     menu.hide();
+    refreshRoom();
+    armRace();
     checkMissions();
+    // Said once, on the way in, because it is the one thing that would
+    // otherwise look like the race is broken: the bar is behind you, so
+    // crossing it again means starting the missions again.
+    if (!net.connected && winTarget > 0 && raceArmedAt >= winTarget) {
+      hud.showToast(
+        "🏁",
+        `${raceArmedAt} missions already finished`,
+        `The race is to ${winTarget}. Tap 🧹 to wipe them and start level.`,
+      );
+    }
     syncInput();
   }
 
@@ -580,12 +717,24 @@ async function boot(): Promise<void> {
   /**
    * How many missions win the match, and who got there first.
    *
-   * The teacher sets it; in a room the host or the server decides who wins,
+   * Set from the menu before anybody starts, or from the teacher panel once
+   * they have; in a room the host or the server decides who *reached* it,
    * because twelve browsers each deciding they were first is twelve winners.
-   * Off (zero) unless somebody sets it, which is most lessons.
+   * Remembered between lessons, and off (zero) until somebody sets it, which
+   * is most lessons.
    */
-  let winTarget = 0;
+  let winTarget = loadRaceTarget();
   let winner: { id: string; name: string } | null = null;
+  /**
+   * How many missions were already finished when the race was armed.
+   *
+   * Without it the race has a trap in it: progress is saved between lessons,
+   * so a student who comes back with eight missions done and is told "first to
+   * five" has won before they have taken a step — the screen fades out on a
+   * match nobody played. So the line has to be *crossed* while the match is
+   * running, and a player who was already past it is told to wipe instead.
+   */
+  let raceArmedAt = 0;
   /** What the room calls us, once we have joined one. */
   let myName = "You";
   /**
@@ -633,6 +782,8 @@ async function boot(): Promise<void> {
 
   /** The chip in the corner: which room this is, and how full. */
   function refreshRoom(): void {
+    // 🧹 is only offered when nobody else's score depends on yours.
+    hud.setSolo(!net.connected);
     if (!net.connected) {
       hud.setRoom(null);
       return;
@@ -653,6 +804,7 @@ async function boot(): Promise<void> {
       winTarget = target;
       winner = roomWinner;
       teacher.setTarget(target);
+      menu.setRaceTarget(target);
       const chosen = netMode ? MODES[netMode as keyof typeof MODES] : null;
       startMode(chosen ?? MODES.vocabulary);
       refreshRoom();
@@ -691,6 +843,7 @@ async function boot(): Promise<void> {
       winTarget = missions;
       winner = null;
       teacher.setTarget(missions);
+      menu.setRaceTarget(missions);
       refreshBoard();
       hud.showToast(
         "🏁",
@@ -700,19 +853,13 @@ async function boot(): Promise<void> {
           : "Your teacher has called the race off.",
       );
     },
-    onWon: (id, name, missions) => {
+    onWon: (id, name) => {
       winner = { id, name };
       refreshBoard();
-      // Everybody is told, winner included, and everybody is shown the board:
-      // a race nobody sees the end of is not a race.
-      const mine = id === myId;
-      hud.showToast(
-        "🏆",
-        mine ? "You won!" : `${name} won`,
-        `${missions} missions finished. The city carries on — keep helping.`,
-      );
-      leaderboard.toggle(true);
-      syncInput();
+      // Everybody's screen goes dark at the same moment, winner included. That
+      // simultaneity is the point: a race where ten of the twelve find out
+      // from a notification in the corner is not a race anybody watched.
+      endMatch();
     },
     onClosed: () => {
       classmates.clear();
@@ -827,7 +974,20 @@ async function boot(): Promise<void> {
     ? new TouchControls(ui, input, { onTalk: () => tryTalk() })
     : null;
 
-  const menu = new Menu(ui, state, quality, {
+  const menu = new Menu(ui, state, quality, winTarget, {
+    // Chosen before the whistle. It is remembered, told to the teacher panel so
+    // the two never disagree, and pushed to the room when there is one — a
+    // teacher who sets the race and *then* opens the lobby should not have to
+    // set it twice.
+    onSetTarget: (missions) => {
+      winTarget = missions;
+      winner = null;
+      armRace();
+      saveRaceTarget(missions);
+      teacher.setTarget(missions);
+      net.setTarget(missions);
+      refreshBoard();
+    },
     onStart: (chosen) => {
       // Class mode is the one that needs somewhere to connect to, so it asks
       // before it starts; everything else walks straight into the city.
@@ -882,6 +1042,9 @@ async function boot(): Promise<void> {
       // laptop too, where the only person racing is the one holding it.
       winTarget = missions;
       winner = null;
+      armRace();
+      saveRaceTarget(missions);
+      menu.setRaceTarget(missions);
       net.setTarget(missions);
       refreshBoard();
       checkMissions();
@@ -976,6 +1139,25 @@ async function boot(): Promise<void> {
       const next = MODES[id as keyof typeof MODES];
       if (next) startMode(next);
       return mode.id;
+    },
+    /**
+     * Set the race the way the menu does, rather than by poking the network.
+     *
+     * Worth having as its own hook: `net.setTarget` only tells the *room*, and
+     * a host that had only done that would end the match showing "0 missions
+     * finished first" — its own copy of the number never moved. The menu and
+     * the teacher panel both set the local number first; so does this.
+     */
+    setTarget: (missions: number) => {
+      winTarget = clampTarget(missions);
+      winner = null;
+      armRace();
+      saveRaceTarget(winTarget);
+      teacher.setTarget(winTarget);
+      menu.setRaceTarget(winTarget);
+      net.setTarget(winTarget);
+      refreshBoard();
+      return winTarget;
     },
     detective: () => detective,
     caseFacts: () => detective?.collected.length ?? 0,
