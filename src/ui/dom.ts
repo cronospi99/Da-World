@@ -31,14 +31,3 @@ export function closeButton(onClick: () => void, label = "Close"): HTMLButtonEle
   button.addEventListener("click", onClick);
   return button;
 }
-
-/** Speaker icon button used to replay pronunciation. */
-export function speakerButton(onClick: () => void, label = "Listen"): HTMLButtonElement {
-  const button = el("button", { class: "tile-button speaker", "aria-label": label });
-  button.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">
-    <path d="M3 8 h3 l4 -3.5 v11 l-4 -3.5 h-3 z" fill="currentColor"/>
-    <path d="M13 6.5 a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-  </svg>`;
-  button.addEventListener("click", onClick);
-  return button;
-}

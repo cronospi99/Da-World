@@ -79,10 +79,14 @@ export class CityHud {
       this.barLabel,
     ]);
 
+    // The citizens are silent, so the only thing left with a voice is the
+    // vocabulary checker — which is what this mutes. The label says so, because
+    // "pronunciation audio" on a game where nothing you walk up to speaks is a
+    // button whose effect you cannot find.
     this.soundButton = el("button", {
       class: "tile-button",
       type: "button",
-      "aria-label": "Toggle pronunciation audio",
+      "aria-label": "Mute the vocabulary checker's voice",
       text: "🔊",
     });
     this.soundButton.addEventListener("click", () => {
@@ -451,7 +455,7 @@ export class CityHud {
           ]),
           el("p", {
             class: "info-note",
-            text: "Stay on the pavement and cross at the crossings — that is the whole point of the directions people give you. A wrong answer costs nothing: the option locks and you try again. Cars stop at red lights and the sun really does go down. Pronunciation uses your device voice; your progress is saved in this browser.",
+            text: "Stay on the pavement and cross at the crossings — that is the whole point of the directions people give you. A wrong answer costs nothing: the option locks and you try again. Cars stop at red lights and the sun really does go down. Nobody in the city talks out loud — if you want to hear a word, tap it in the vocabulary checker. Your progress is saved in this browser.",
           }),
           el("div", { class: "lesson-actions" }, [character, reset]),
         ]),

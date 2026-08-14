@@ -205,12 +205,6 @@ canvas.webgl {
   z-index: 2;
 }
 
-.tile-button.speaker {
-  flex: 0 0 auto;
-  background-color: var(--paper-2);
-  box-shadow: 2px 2px 0 var(--ink-soft);
-  color: var(--accent-deep);
-}
 
 .pill-button {
   padding: 12px 26px;
