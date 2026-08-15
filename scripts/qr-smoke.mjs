@@ -189,8 +189,14 @@ if (drawnAs?.kind !== "robot" || drawnAs.shirt !== "#8f5be8") {
 
 /* --- the teacher sets a race, and somebody wins it ------------------------- */
 
-await host.evaluate(() => window.__world.net.setTarget(2));
+// Through the same path the menu and the teacher panel use, not by poking the
+// network: setting only the room's copy leaves the host's own number at zero,
+// and the host would then end the match announcing "0 missions finished first".
+await host.evaluate(() => window.__world.setTarget(2));
 await student.waitForFunction(() => window.__world.winTarget?.() === 2, null, { timeout: 20_000 });
+if ((await host.evaluate(() => window.__world.winTarget())) !== 2) {
+  fail("The host set the race but its own target did not move.");
+}
 step("race set to 2 missions");
 
 // Straight to the finish: the student reports two missions done, which is what
@@ -204,17 +210,67 @@ await student.waitForFunction(() => window.__world.winner?.()?.name === "Ana", n
 });
 step("Ana won");
 
-// The board is open on the winner's screen, and it says so.
-await student.waitForTimeout(800);
-const banner = await student.locator(".board-banner").textContent();
-if (!banner?.includes("won")) fail(`The leaderboard banner reads "${banner}".`);
-const boardRows = await student.locator(".board-row").count();
-if (boardRows !== 3) fail(`The leaderboard has ${boardRows - 1} people on it, expected 2.`);
-await student.screenshot({ path: `${OUT}/qr-03-leaderboard.png` });
+// The match ends on *both* screens, not just the winner's. That
+// simultaneity is the whole point of ending it with a fade rather than a
+// notification, and it is the part a single-tab test cannot see: the loser's
+// city has to go dark too, and their table has to say who beat them.
+//
+// The wait is generous because the reveal is deliberately behind the fade.
+for (const [who, page] of [
+  ["Ana", student],
+  ["the host", host],
+]) {
+  await page
+    .waitForFunction(
+      () => document.querySelector(".match-over")?.classList.contains("is-revealed"),
+      null,
+      { timeout: 20_000 },
+    )
+    .catch(() => fail(`The match never ended on ${who}'s screen.`));
+
+  const over = await page.evaluate(() => {
+    const node = document.querySelector(".match-over");
+    return {
+      headline: node?.querySelector(".over-headline")?.textContent ?? "",
+      sub: node?.querySelector(".over-sub")?.textContent ?? "",
+      rows: node?.querySelectorAll(".over-table .board-row").length ?? 0,
+      buttons: [...(node?.querySelectorAll(".over-actions button") ?? [])].map((b) =>
+        b.textContent.trim(),
+      ),
+    };
+  });
+  if (!over.headline.includes("won")) {
+    fail(`The result on ${who}'s screen reads "${over.headline}".`);
+  }
+  if (!over.sub.includes("2 missions")) {
+    fail(`The result on ${who}'s screen reads "${over.sub}" — the target did not reach them.`);
+  }
+  // One header row plus the two people in the room.
+  if (over.rows !== 3) fail(`${who}'s final table has ${over.rows - 1} people, expected 2.`);
+  await page.screenshot({ path: `${OUT}/qr-03-match-over-${who === "Ana" ? "student" : "host"}.png` });
+}
+
+// Only whoever is holding the room open may start the next one — a student
+// restarting the race would be resetting their own score mid-match.
+const studentButtons = await student.evaluate(() =>
+  [...document.querySelectorAll(".over-actions button")].map((b) => b.textContent.trim()),
+);
+const hostButtons = await host.evaluate(() =>
+  [...document.querySelectorAll(".over-actions button")].map((b) => b.textContent.trim()),
+);
+if (studentButtons.some((b) => b.includes("New match"))) {
+  fail(`A student is offered "New match": ${JSON.stringify(studentButtons)}`);
+}
+if (!hostButtons.some((b) => b.includes("New match"))) {
+  fail(`The host is not offered "New match": ${JSON.stringify(hostButtons)}`);
+}
 
 /* --- the teacher moves the room to another mode ---------------------------- */
 
+// Dismiss the result on both screens; the city is still there behind it.
 await student.keyboard.press("Escape");
+await host.keyboard.press("Escape");
+await student.waitForTimeout(300);
 await host.evaluate(() => window.__world.host?.setMode("directions"));
 await student.waitForFunction(() => window.__world.mode.id === "directions", null, {
   timeout: 15_000,

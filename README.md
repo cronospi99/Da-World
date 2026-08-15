@@ -58,15 +58,40 @@ counting you.
 
 ### Winning a match
 
-The teacher panel sets **how many missions win the match** — no race, 3, 5, 8,
-or all fifteen. Everybody sees the count on their own leaderboard, the first
-person there is announced to the whole room, and changing the number starts the
-race again, so a lesson can run more than one.
+**🏁 Win the match**, on the menu, sets how many missions each student has to
+finish. It is on the menu rather than only in the teacher panel because a race
+is a rule you announce before the whistle — "first to five" — and a number set
+halfway through means interrupting a class that has already started to tell
+them the game changed. Anything from one to all twenty, by a stepper or by the
+four presets a teacher actually picks; the choice is remembered between lessons
+and pushed to the room if you are hosting one. The teacher panel still sets it
+too, because a race called off mid-lesson is a real thing that happens.
+
+When somebody gets there **the match ends**: every screen in the room fades to
+black over a second, and the final table comes up on the black — winner,
+missions, XP, citizens helped. The fade is the point. A room of twelve looks up
+at the same moment, which the notification in the corner this used to be had
+never once achieved. From there: a new match (whoever owns the race), keep
+exploring the same city, or the menu.
 
 Who won is decided by whoever holds the guest list — the hosting browser or the
 class server — and never by the winner's own copy of the game: twelve browsers
 each deciding they were first is twelve winners. It works on one machine too,
 where the only person racing is the one holding it.
+
+Progress is saved between lessons, so the race counts missions finished *since
+it was armed*. Without that, a student coming back with eight missions done and
+told "first to five" would have won before taking a step — the screen would
+fade out on a match nobody played. They are told the bar is behind them and
+pointed at 🧹 instead.
+
+**🧹**, in the right-hand column while you play, is that button: it clears every
+finished mission and everything they count — places found, citizens helped, XP
+and level — leaving the city, your character, the mode and any open case exactly
+as they are. It asks first, and it only appears when you are playing on your
+own: in a room the missions are what the race is scored on, and a student who
+could reset their own count mid-match would turn the leaderboard into a list of
+who had pressed it least recently.
 
 The **leaderboard** (🏆) ranks the room on missions first and XP second, marks
 your own row, and updates the moment somebody overtakes you.

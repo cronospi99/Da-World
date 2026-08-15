@@ -31,6 +31,8 @@ interface HudOptions {
   onVocab: () => void;
   /** Put the main menu back up without losing the city. */
   onMenu: () => void;
+  /** Clear every finished mission and start the run again. Solo only. */
+  onWipe: () => void;
 }
 
 export class CityHud {
@@ -50,6 +52,7 @@ export class CityHud {
   private readonly boardButton: HTMLButtonElement;
   private readonly caseButton: HTMLButtonElement;
   private readonly vocabButton: HTMLButtonElement;
+  private readonly wipeButton: HTMLButtonElement;
 
   private toastTimer = 0;
 
@@ -161,6 +164,18 @@ export class CityHud {
     });
     menuButton.addEventListener("click", () => this.options.onMenu());
 
+    // Start the run again without starting the city again. Solo only, and for
+    // a reason: in a room the missions are what the race is scored on, and a
+    // button that let one student reset their own count mid-match would make
+    // the leaderboard a list of who had pressed it least recently.
+    this.wipeButton = el("button", {
+      class: "tile-button is-gone",
+      type: "button",
+      "aria-label": "Clear my finished missions and start again",
+      text: "🧹",
+    });
+    this.wipeButton.addEventListener("click", () => this.options.onWipe());
+
     const buttons = el("nav", { class: "hud-corner hud-top-right" }, [
       this.boardButton,
       this.roomButton,
@@ -168,6 +183,7 @@ export class CityHud {
       this.vocabButton,
       this.soundButton,
       missionButton,
+      this.wipeButton,
       infoButton,
       menuButton,
     ]);
@@ -210,6 +226,11 @@ export class CityHud {
   /** Show the leaderboard button, which only means anything in a room. */
   setLeaderboard(visible: boolean): void {
     this.boardButton.classList.toggle("is-gone", !visible);
+  }
+
+  /** True when this city is nobody else's — which is when 🧹 is offered. */
+  setSolo(solo: boolean): void {
+    this.wipeButton.classList.toggle("is-gone", !solo);
   }
 
   /** The mode being played, shown on the mission panel. */
@@ -449,6 +470,7 @@ export class CityHud {
             el("li", { text: "Re-centre the camera — press R." }),
             el("li", { text: "Look a word up — 📖, the vocabulary checker." }),
             el("li", { text: "Back to the menu — 🏠. Nothing is lost." }),
+            el("li", { text: "Start the missions again — 🧹, when you are playing on your own." }),
             el("li", {
               text: "In Family Detective, 📓 is your case file: what you know, and who is left.",
             }),
