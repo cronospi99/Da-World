@@ -127,7 +127,7 @@ cannot tell them apart.
 | | |
 | --- | --- |
 | Move | `W A S D` / arrow keys, or the left half of a touch screen |
-| Sprint | `Shift` — a walk is 2.5 units a second, a run is 5 |
+| Run | `Shift`, or the 🏃 button on a phone — a walk is 2.5 units a second, a run is 5 |
 | Jump | `Space`, or a quick tap on the right half |
 | Look | Click once to take the mouse, then move it. `Esc` gives it back |
 | Zoom | Scroll, or pinch |
@@ -138,11 +138,19 @@ cannot tell them apart.
 On a phone the controls are drawn on the screen: a stick that appears under
 your left thumb wherever you put it **in the bottom-left corner** — and only
 there, so a thumb anywhere else aims the camera instead of quietly walking you
-into a wall — a 💬 button that lights up when somebody is in range, and a jump
-button. Aiming is a drag anywhere else, at twice the
+into a wall — a 💬 button that lights up when somebody is in range, a jump
+button, and 🏃 to run. Aiming is a drag anywhere else, at twice the
 mouse's radians per pixel — a thumb has about a fifth of a screen to travel
 before it runs out of hand, and at the mouse rate looking behind you took four
 swipes. Held upright, the HUD stacks and the cards become sheets you can reach.
+
+🏃 **latches** where `Shift` is held, and that is the one place the touch scheme
+parts company with the keyboard's on purpose. On a desktop you hold Shift with
+a hand that is doing nothing else; on a phone the right thumb is the camera, so
+a run you had to hold would cost you the ability to look along the street you
+were sprinting down. Tap it on, tap it off; it stays lit while it is on, and it
+turns itself off when you go back to the menu so you do not walk out of it at a
+sprint you never asked for.
 
 Walking is a **walk**. It used to top out near nine units a second, which for a
 character 1.2 units tall is seven times their own height every second: you

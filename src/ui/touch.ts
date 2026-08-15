@@ -17,12 +17,20 @@ import { el } from "./dom";
  *   corner rather than only on the dot itself;
  * - a **talk button** at the bottom right, which is the one verb in the game,
  *   lit up when somebody is in range and dark when nobody is;
- * - a **jump button** beside it.
+ * - a **jump button** beside it;
+ * - a **run button**, which latches.
  *
  * Aiming the camera stays a drag anywhere else on the screen, because a second
  * stick is one thumb more than a phone has. Everything here just moves the
  * numbers `Input` already exposes, so the controller, the camera and the
  * character know nothing about any of it.
+ *
+ * The run latches rather than being held, and that is the one place this
+ * scheme deliberately parts company with the keyboard's. On a desktop you hold
+ * Shift with a hand that is doing nothing else. On a phone the right thumb is
+ * the camera: hold a run button with it and you are sprinting down a street
+ * you can no longer look along. So it is a toggle, it stays lit while it is
+ * on, and it crosses a city the size of this one in about half the time.
  */
 
 const STICK_RADIUS = 62;
@@ -36,9 +44,11 @@ export class TouchControls {
   private readonly stickBase: HTMLElement;
   private readonly stickKnob: HTMLElement;
   private readonly talkButton: HTMLButtonElement;
+  private readonly runButton: HTMLButtonElement;
   private readonly stickZone: HTMLElement;
 
   private stickId: number | null = null;
+  private running = false;
   private readonly origin = { x: 0, y: 0 };
 
   constructor(
@@ -73,6 +83,18 @@ export class TouchControls {
       this.input.queueJump();
     });
 
+    this.runButton = el("button", {
+      class: "touch-button touch-run",
+      type: "button",
+      "aria-label": "Run",
+      "aria-pressed": "false",
+      text: "🏃",
+    });
+    this.runButton.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.setRunning(!this.running);
+    });
+
     const stickZone = el("div", { class: "stick-zone" }, [this.stickBase]);
     this.stickZone = stickZone;
     stickZone.addEventListener("pointerdown", this.onStickDown);
@@ -87,7 +109,7 @@ export class TouchControls {
 
     this.root = el("div", { class: "touch-layer" }, [
       stickZone,
-      el("div", { class: "touch-buttons" }, [jump, this.talkButton]),
+      el("div", { class: "touch-buttons" }, [this.runButton, jump, this.talkButton]),
     ]);
     parent.append(this.root);
   }
@@ -95,6 +117,17 @@ export class TouchControls {
   /** Show the controls only while there is a world to control. */
   setVisible(visible: boolean): void {
     this.root.classList.toggle("is-on", visible);
+    // Coming back to the menu with the run still latched would mean walking
+    // out of it at a sprint you never asked for.
+    if (!visible) this.setRunning(false);
+  }
+
+  /** Turn the run on or off, and show which it is. */
+  private setRunning(on: boolean): void {
+    this.running = on;
+    this.input.setSprint(on);
+    this.runButton.classList.toggle("is-ready", on);
+    this.runButton.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
   /** Light the talk button when somebody is close enough to speak to. */

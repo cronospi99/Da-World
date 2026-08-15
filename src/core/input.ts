@@ -9,8 +9,9 @@ import * as THREE from "three";
  * releases it and drag-to-look takes over again.
  * Touch: the drawn stick in the bottom-left corner walks (see `ui/touch.ts`,
  * which claims it with `ownStick`), a drag anywhere else orbits, pinch zooms,
- * and a quick tap that did not drag jumps. Where no controls are drawn, the
- * whole left half of the screen falls back to being an invisible stick.
+ * a quick tap that did not drag jumps, and the 🏃 button latches the run on.
+ * Where no controls are drawn, the whole left half of the screen falls back to
+ * being an invisible stick.
  */
 export class Input {
   /** x = strafe, y = forward. Length is clamped to 1. */
@@ -18,8 +19,29 @@ export class Input {
   /** Consumed (and reset) by the camera rig every frame. */
   readonly look = new THREE.Vector2();
   zoom = 0;
-  /** True while a sprint key is held. */
-  sprint = false;
+
+  /**
+   * True while the character should be running.
+   *
+   * Two sources, kept apart on purpose. Shift is *held*: pressing it runs,
+   * letting go walks. The touch button is *latched*: a phone's right thumb is
+   * the one that drags the camera, so a run you had to hold would cost you the
+   * ability to look where you are going, and the character would sprint down a
+   * street you could not steer. Storing them separately is what stops one from
+   * cancelling the other — a keyboard user on a touchscreen laptop who taps
+   * 🏃 and then presses and releases Shift should still be running.
+   */
+  get sprint(): boolean {
+    return this.keySprint || this.touchSprint;
+  }
+
+  private keySprint = false;
+  private touchSprint = false;
+
+  /** Latch the run on or off from the touch controls. */
+  setSprint(on: boolean): void {
+    this.touchSprint = on;
+  }
 
   /**
    * True when the look this frame came from a finger rather than a mouse.
@@ -214,7 +236,7 @@ export class Input {
       return;
     }
     if (key === "shift") {
-      this.sprint = true;
+      this.keySprint = true;
       return;
     }
     if (key === "w" || key === "a" || key === "s" || key === "d") {
@@ -225,13 +247,13 @@ export class Input {
 
   private onKeyUp = (event: KeyboardEvent): void => {
     const key = normalizeKey(event.key);
-    if (key === "shift") this.sprint = false;
+    if (key === "shift") this.keySprint = false;
     this.keys.delete(key);
   };
 
   private onBlur = (): void => {
     this.keys.clear();
-    this.sprint = false;
+    this.keySprint = false;
     this.move.set(0, 0);
     this.externalStick = false;
     this.stickId = null;

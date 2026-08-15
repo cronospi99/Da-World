@@ -460,7 +460,9 @@ export class CityHud {
           }),
           el("ul", { class: "info-list" }, [
             el("li", { text: "Move — WASD / arrow keys, or the left half of a touch screen." }),
-            el("li", { text: "Sprint — hold Shift. A walk is a walk; Shift is for a hurry." }),
+            el("li", {
+              text: "Run — hold Shift, or tap 🏃 on a phone. It stays on until you tap it again, and it is about twice a walk.",
+            }),
             el("li", { text: "Jump — space, or a quick tap on the right half." }),
             el("li", {
               text: "Look — click once to take the mouse, then move it. Esc gives it back.",
